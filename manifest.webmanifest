@@ -1,0 +1,16 @@
+{
+  "name": "รายรับ-รายจ่ายของฉัน",
+  "short_name": "การเงินของฉัน",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#6654d9",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "./personal-finance-portrait-icon.png",
+      "sizes": "1254x1254",
+      "type": "image/png"
+    }
+  ]
+}
