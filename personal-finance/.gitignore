@@ -1,0 +1,13 @@
+node_modules/
+.tools/
+.clasprc.json
+.clasp.json
+.env
+.env.*
+*.log
+.remote-snapshot/
+.remote-v3/
+.codex-remote-attachments/
+*-preview.png
+*-v4*.png
+COMPANY-ADJUSTMENT-*.md
