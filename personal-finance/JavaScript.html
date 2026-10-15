@@ -302,18 +302,22 @@ function isRefund() {
 }
 let refundPreviewRequest = 0;
 let refundAmountAtPreview = null;
+let refundClaimsAtPreview = [];
+let refundDueAtPreview = 0;
 function updateRefundHint() {
   let remaining = Number(BOOT?.company?.remaining || 0);
   const oldCategory = (BOOT?.filterCategories || BOOT?.categories || []).find(c=>c.category_id===selectedTx?.category_id);
-  if(selectedTx?.status==='ACTIVE'&&oldCategory?.category_name==='เงินคืนบริษัท') remaining += Number(selectedTx.amount || 0);
+  if(selectedTx?.status==='ACTIVE'&&oldCategory?.category_name==='เงินคืนบริษัท') remaining += Number(selectedTx.amount || 0)-Number(selectedTx.company_pool_amount||0);
   $('refundBalanceHint').textContent = 'ยอดค้างคืนจากข้อมูลที่โหลด: ' + money(remaining);
 }
 function clearRefundPreview() {
   refundPreviewRequest++;
   refundAmountAtPreview = null;
+  refundClaimsAtPreview = [];
+  refundDueAtPreview = 0;
   $('refundMatches').innerHTML = '';
   $('refundPreviewButton').disabled = false;
-  $('refundPreviewButton').textContent = 'ตรวจยอดคืนและส่วนเข้ากองกลาง';
+  $('refundPreviewButton').textContent = 'เลือกรายการที่ได้รับคืน';
   $('refundFeedback').textContent = '';
 }
 function toggleRefundField() {
@@ -362,25 +366,51 @@ async function previewRefund() {
   $('refundPreviewButton').disabled = true;
   $('refundPreviewButton').textContent = 'กำลังตรวจยอดล่าสุด...';
   try {
-    const review = await server('getCompanyReceiptPreview', amount, selectedTx?.transaction_id || '');
-    const items = review.allocations;
+    const review = await server('getCompanyReceiptPreview', amount, selectedTx?.transaction_id || '', []);
     if(request!==refundPreviewRequest||!isRefund()||Number($('amount').value)!==amount) return;
-    const claims = Object.fromEntries((BOOT?.company?.claims || []).map(item => [item.claim_id, item]));
-    $('refundMatches').innerHTML = items.map(item => `<div class="match-row">
-      <span>${dateTH(claims[item.claim_id]?.expense_date)} · ${esc(claims[item.claim_id]?.description || item.claim_id)}<small>${esc(claims[item.claim_id]?.project_name || 'รายการทั่วไป · ไม่มีโปรเจกต์')}</small></span>
-      <input type="number" min="0" step="0.01" data-claim="${esc(item.claim_id)}" value="${item.amount}" aria-label="ยอดจับคู่">
+    const existing=Object.fromEntries((review.existing_allocations||[]).map(item=>[item.claim_id,item.amount]));
+    refundClaimsAtPreview=review.claims;
+    refundDueAtPreview=review.remaining;
+    $('refundMatches').innerHTML = review.claims.map(item => `<div class="refund-choice">
+      <label class="refund-choice-label"><input type="checkbox" data-refund-claim="${esc(item.claim_id)}" ${existing[item.claim_id]?'checked':''} onchange="updateRefundSelection()">
+      <span>${esc(item.description || item.claim_id)}<small>${dateTH(item.expense_date)} · ${esc(item.project_name || 'รายการทั่วไป · ไม่มีโปรเจกต์')}</small><small>ค้างคืน ${money(item.remaining_amount)}</small></span></label>
+      <label class="refund-choice-amount">ยอดที่ได้รับคืน<input type="number" inputmode="decimal" min="0.01" max="${item.remaining_amount}" step="0.01" data-claim="${esc(item.claim_id)}" value="${existing[item.claim_id]||item.remaining_amount}" ${existing[item.claim_id]?'':'disabled'} oninput="updateRefundSelection()" aria-label="ยอดรับคืน ${esc(item.description||item.claim_id)}"></label>
     </div>`).join('');
     refundAmountAtPreview = amount;
     $('refundBalanceHint').textContent='ยอดค้างคืนล่าสุด: '+money(review.remaining);
-    $('refundFeedback').textContent = 'รับ '+money(amount)+' → คืนยอดออกแทน '+money(review.refund_amount)+' ('+items.length+' รายการ) · เข้ากองกลาง '+money(review.pool_amount)+' ยังไม่บันทึกจนกว่าจะกดบันทึก';
+    updateRefundSelection();
   } catch (error) {
     if(request===refundPreviewRequest) $('refundFeedback').textContent = error?.message || 'ตรวจยอดไม่สำเร็จ กรุณาลองใหม่';
   } finally {
     if(request===refundPreviewRequest) {
       $('refundPreviewButton').disabled = false;
-      $('refundPreviewButton').textContent = 'ตรวจยอดคืนและส่วนเข้ากองกลาง';
+      $('refundPreviewButton').textContent = 'เลือกรายการที่ได้รับคืน';
     }
   }
+}
+function readRefundSelection() {
+  if(refundAmountAtPreview!==Number($('amount').value)) throw new Error('กรุณาเลือกรายการที่ได้รับคืนก่อนบันทึก');
+  const checked=new Set([...$('refundMatches').querySelectorAll('input[data-refund-claim]')].filter(el=>el.checked).map(el=>el.dataset.refundClaim));
+  const claims=Object.fromEntries(refundClaimsAtPreview.map(c=>[c.claim_id,c]));
+  const items=[...$('refundMatches').querySelectorAll('input[data-claim]')].filter(el=>checked.has(el.dataset.claim))
+    .map(el=>({claim_id:el.dataset.claim,amount:Number(el.value)}));
+  let total=0;
+  items.forEach(item=>{
+    if(!Number.isFinite(item.amount)||item.amount<=0||Math.abs(item.amount*100-Math.round(item.amount*100))>0.000001)
+      throw new Error('กรุณากรอกยอดรับคืนของรายการที่เลือกให้มากกว่า 0 และทศนิยมไม่เกิน 2 ตำแหน่ง');
+    if(!claims[item.claim_id]||Math.round(item.amount*100)>Math.round(claims[item.claim_id].remaining_amount*100)) throw new Error('ยอดรับคืนเกินยอดค้างของรายการที่เลือก');
+    total+=Math.round(item.amount*100);
+  });
+  if(total>Math.round(Number($('amount').value)*100)) throw new Error('ยอดที่เลือกคืนเกินเงินที่ได้รับจริง กรุณาปรับรายการหรือยอดรับคืน');
+  return items;
+}
+function updateRefundSelection() {
+  const checked=new Set([...$('refundMatches').querySelectorAll('input[data-refund-claim]')].filter(el=>el.checked).map(el=>el.dataset.refundClaim));
+  $('refundMatches').querySelectorAll('input[data-claim]').forEach(el=>{el.disabled=!checked.has(el.dataset.claim);});
+  try {
+    const items=readRefundSelection(),refund=items.reduce((sum,item)=>sum+Math.round(item.amount*100),0)/100;
+    $('refundFeedback').textContent=(items.length?'เลือกคืน '+items.length+' รายการ':'ยังไม่ได้เลือกรายการคืน')+' · คืนยอดออกแทน '+money(refund)+' · เข้ากองกลาง '+money((Math.round(refundAmountAtPreview*100)-Math.round(refund*100))/100)+' · ยังค้างคืน '+money((Math.round(refundDueAtPreview*100)-Math.round(refund*100))/100)+' — ยังไม่บันทึกจนกว่าจะกดบันทึก';
+  } catch(error) { $('refundFeedback').textContent=error.message; }
 }
 function formTransaction() {
   const project = selectedTx || selectedType !== 'EXPENSE' || $('owner').value !== 'COMPANY'
@@ -403,22 +433,24 @@ function formTransaction() {
   if(input.company_funding==='POOL') input.project_name='';
   if(isRefund()) input.company_surplus_to_pool=true;
   if (isRefund() && input.status === 'ACTIVE') {
-    const matches = [...$('refundMatches').querySelectorAll('input[data-claim]')];
-    if (matches.length && refundAmountAtPreview === input.amount) input.allocations = matches.map(el => ({ claim_id: el.dataset.claim, amount: Number(el.value) })).filter(item=>item.amount!==0);
+    if (refundAmountAtPreview === input.amount) input.allocations = readRefundSelection();
   }
   return input;
 }
 async function saveCurrentTransaction() {
   const button = $('saveButton');
   if (button.disabled) return;
-  const input = formTransaction();
+  let input;
+  try { input=formTransaction(); }
+  catch(error) { $('refundFeedback').textContent=error.message;return; }
   if (!(input.amount > 0)) return notify('warning', 'กรุณากรอกจำนวนเงิน');
   if (selectedType === 'TRANSFER' && (!input.to_account_id || input.to_account_id === input.account_id)) return notify('warning', 'บัญชีปลายทางไม่ถูกต้อง');
   button.disabled = true;
   button.textContent = 'กำลังบันทึก...';
   try {
-    if(isRefund()) {
-      const review=await server('getCompanyReceiptPreview',input.amount,selectedTx?.transaction_id||'');
+    if(isRefund()&&input.status==='ACTIVE') {
+      if(!Array.isArray(input.allocations)) { await previewRefund();return; }
+      const review=await server('getCompanyReceiptPreview',input.amount,selectedTx?.transaction_id||'',input.allocations);
       input.company_expected_refund=review.refund_amount;input.company_expected_pool=review.pool_amount;
       if(review.pool_amount>0) {
         const answer=await sweet({icon:'question',title:'ยืนยันแบ่งเงินรับบริษัท',text:'รับ '+money(input.amount)+' เข้าบัญชีครั้งเดียว คืนเงินที่ออกแทน '+money(review.refund_amount)+' และเก็บเข้ากองกลาง '+money(review.pool_amount),showCancelButton:true,confirmButtonText:'ยืนยันบันทึก',cancelButtonText:'กลับไปตรวจ'});

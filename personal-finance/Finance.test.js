@@ -831,6 +831,54 @@ test('Company pool receives surplus once and expenses require explicit funding c
   }
 });
 
+test('Selected company receipts leave unchecked claims open and support partial returns',()=>{
+  const snapshot=Object.fromEntries(Object.entries(sheets).map(([name,s])=>[name,s.data.map(r=>r.slice())]));
+  try {
+    Object.values(sheets).forEach(s=>{s.data=s.data.slice(0,2);});
+    seed('บัญชี',{account_id:'ACC002',user_id:'USR001',account_name:'บัญชีทดสอบ',opening_balance:0,is_active:true});
+    seed('หมวดหมู่',{category_id:'EXP',category_name:'อุปกรณ์',transaction_type:'EXPENSE',is_active:true});
+    seed('หมวดหมู่',{category_id:'REF',category_name:'เงินคืนบริษัท',transaction_type:'INCOME',is_active:true});
+    [125,300.55,200].forEach(amount=>call('saveTransaction',{...base,transaction_date:'2026-10-01',transaction_type:'EXPENSE',category_id:'EXP',expense_owner:'COMPANY',company_funding:'PERSONAL',amount}));
+    const claims=call('getCompanySummary').claims,ids=claims.map(c=>c.claim_id);
+    const items=[{claim_id:ids[1],amount:300.55},{claim_id:ids[2],amount:75}];
+    const unselected=call('getCompanyReceiptPreview',800,'',[]);
+    assert.equal(unselected.claims.length,3);assert.equal(unselected.refund_amount,0);assert.equal(unselected.pool_amount,800);
+    const review=call('getCompanyReceiptPreview',800,'',items);
+    assert.equal(review.refund_amount,375.55);assert.equal(review.pool_amount,424.45);
+    assert.throws(()=>call('getCompanyReceiptPreview',300,'',items),/เกินเงินที่ได้รับ/);
+    assert.throws(()=>call('getCompanyReceiptPreview',800,'',[items[0],items[0]]),/ไม่ถูกต้อง/);
+    assert.throws(()=>call('getCompanyReceiptPreview',800,'',[{claim_id:ids[0],amount:126}]),/เกินยอดค้าง/);
+    assert.throws(()=>call('getCompanyReceiptPreview',800,'',[{claim_id:'unknown',amount:1}]),/ไม่ถูกต้อง/);
+    [-1,0,1.001].forEach(amount=>assert.throws(()=>call('getCompanyReceiptPreview',800,'',[{claim_id:ids[0],amount}])));
+    const receipt={...base,transaction_date:'2026-10-02',transaction_type:'INCOME',category_id:'REF',amount:800,company_surplus_to_pool:true,
+      allocations:items,company_surplus_confirmed:true,company_expected_refund:375.55,company_expected_pool:424.45};
+    const before=call('getDashboard'),paid=call('saveTransaction',receipt),summary=call('getCompanySummary');
+    assert.equal(summary.claims.find(c=>c.claim_id===ids[0]).remaining_amount,125);
+    assert.equal(summary.claims.find(c=>c.claim_id===ids[1]).status,'CLOSED');
+    assert.equal(summary.claims.find(c=>c.claim_id===ids[2]).remaining_amount,125);
+    assert.equal(summary.claims.find(c=>c.claim_id===ids[2]).status,'PARTIAL');
+    assert.equal(summary.remaining,250);assert.equal(summary.pool.remaining,424.45);
+    assert.equal(Math.round(call('getDashboard').real_cash*100),Math.round(before.real_cash*100)+80000);assert.equal(call('getDashboard').income,before.income);
+    const edit=call('getCompanyReceiptPreview',800,paid.id,items);
+    assert.equal(edit.refund_amount,375.55);assert.equal(edit.existing_allocations.length,2);assert.equal(edit.claims.length,3);
+    // A stale selection cannot pay an already-closed claim, and no failed save creates a transaction.
+    const rowsBefore=sheets['รายการเงิน'].getLastRow();
+    assert.throws(()=>call('saveTransaction',receipt),/เกินยอดค้าง/);
+    assert.equal(sheets['รายการเงิน'].getLastRow(),rowsBefore);
+    call('voidTransaction',paid.id,'ยกเลิกข้อมูลทดสอบ');
+    assert.equal(call('getCompanySummary').remaining,625.55);assert.equal(call('getCompanySummary').pool.remaining,0);
+    const poolOnly=call('saveTransaction',{...receipt,allocations:[],company_expected_refund:0,company_expected_pool:800});
+    assert.equal(call('getCompanySummary').remaining,625.55);assert.equal(call('getCompanySummary').pool.remaining,800);
+    call('voidTransaction',poolOnly.id,'ยกเลิกข้อมูลทดสอบ');
+    const exact=call('saveTransaction',{...receipt,amount:75,allocations:[{claim_id:ids[2],amount:75}],company_expected_refund:75,company_expected_pool:0});
+    assert.equal(call('getCompanySummary').remaining,550.55);assert.equal(call('getCompanySummary').pool.remaining,0);
+    call('updateTransaction',exact.id,{amount:50,company_surplus_to_pool:true,allocations:[{claim_id:ids[2],amount:50}],company_expected_refund:50,company_expected_pool:0});
+    assert.equal(call('getCompanySummary').remaining,575.55);
+  } finally {
+    Object.keys(sheets).forEach(name=>{if(snapshot[name]) sheets[name].data=snapshot[name];else delete sheets[name];});
+  }
+});
+
 test('Dialog scroll lock retains background position through nested dialogs',()=>{
   const source=fs.readFileSync('JavaScript.html','utf8');
   const start=source.indexOf('function installDialogScrollLock()');
@@ -853,8 +901,8 @@ test('Dialog scroll lock retains background position through nested dialogs',()=
 async function testRefundFormRecovery() {
   const source=fs.readFileSync('JavaScript.html','utf8');
   const body=source.slice(source.indexOf('<script>')+8,source.indexOf("document.addEventListener('click'"));
-  const elements={},inputs=[];
-  const element=id=>elements[id] ||= {value:'',checked:false,disabled:false,innerHTML:'',textContent:'',classList:{toggle(){},add(){},remove(){}},querySelectorAll:()=>inputs};
+  const elements={},inputs=[],checks=[];
+  const element=id=>elements[id] ||= {value:'',checked:false,disabled:false,innerHTML:'',textContent:'',classList:{toggle(){},add(){},remove(){}},querySelectorAll:selector=>selector==='input[data-refund-claim]'?checks:inputs};
   const ui=vm.createContext({console,window:{},document:{getElementById:element},setTimeout,clearTimeout});
   vm.runInContext(body,ui);
   vm.runInContext("selectedType='INCOME';BOOT={categories:[{category_id:'REFUND',category_name:'เงินคืนบริษัท'}],company:{remaining:100,claims:[{claim_id:'LEGACY',expense_date:'2026-10-01',description:'ไม่มีโปรเจกต์'}]}}",ui);
@@ -873,11 +921,26 @@ async function testRefundFormRecovery() {
   assert.equal(element('refundMatches').innerHTML,'');
   assert.equal(element('refundPreviewButton').disabled,false);
   element('amount').value='100';
-  ui.server=async()=>({refund_amount:100,pool_amount:0,remaining:100,allocations:[{claim_id:'LEGACY',amount:100}]});await ui.previewRefund();
+  ui.server=async(name,amount,id,selected)=>{
+    assert.equal(selected.length,0);
+    return {refund_amount:0,pool_amount:100,remaining:100,allocations:[],claims:[{claim_id:'LEGACY',remaining_amount:100,expense_date:'2026-10-01',description:'ข้อมูลล่าสุด'}]};
+  };await ui.previewRefund();
   assert.match(element('refundMatches').innerHTML,/รายการทั่วไป · ไม่มีโปรเจกต์/);
+  assert.match(element('refundMatches').innerHTML,/ข้อมูลล่าสุด/);
+  assert.doesNotMatch(element('refundMatches').innerHTML,/ checked/);
   inputs.push({dataset:{claim:'LEGACY'},value:'100'},{dataset:{claim:'SKIP'},value:'0'});
+  checks.push({dataset:{refundClaim:'LEGACY'},checked:false},{dataset:{refundClaim:'SKIP'},checked:false});
+  ui.updateRefundSelection();assert.equal(inputs[0].disabled,true);assert.equal(ui.formTransaction().allocations.length,0);
+  checks[0].checked=true;ui.updateRefundSelection();assert.equal(inputs[0].disabled,false);
   const tx=ui.formTransaction();
   assert.equal(tx.project_name,'');assert.equal(tx.allocations.length,1);assert.equal(tx.allocations[0].amount,100);
+  inputs[0].value='30.25';ui.updateRefundSelection();assert.equal(ui.formTransaction().allocations[0].amount,30.25);
+  assert.match(element('refundFeedback').textContent,/30\.25.*69\.75.*69\.75/);
+  inputs[0].value='101';assert.throws(()=>ui.formTransaction(),/เกินยอดค้าง/);
+  inputs[0].value='0';assert.throws(()=>ui.formTransaction(),/มากกว่า 0/);
+  inputs[0].value='1.001';assert.throws(()=>ui.formTransaction(),/ทศนิยม/);
+  inputs[0].value='80';element('amount').value='60';
+  vm.runInContext('refundAmountAtPreview=60',ui);assert.throws(()=>ui.formTransaction(),/เกินเงินที่ได้รับ/);
   element('amount').value='50';ui.clearRefundPreview();
   assert.equal(ui.formTransaction().allocations,undefined);
   console.log('PASS Refund form shows legacy claims, persistent errors and discards stale previews');
@@ -892,10 +955,10 @@ async function testCompanyConsentUI() {
   vm.runInContext("selectedType='INCOME';BOOT={categories:[{category_id:'REF',category_name:'เงินคืนบริษัท'}]}",ui);
   element('category').value='REF';
   let writes=0,posted,confirm=false;
-  const receipt={amount:100,status:'ACTIVE',transaction_type:'INCOME',category_id:'REF',company_surplus_to_pool:true};
+  const receipt={amount:100,status:'ACTIVE',transaction_type:'INCOME',category_id:'REF',company_surplus_to_pool:true,allocations:[{claim_id:'chosen',amount:60}]};
   ui.formTransaction=()=>({...receipt});
   ui.server=async(name,...args)=>{
-    if(name==='getCompanyReceiptPreview') return {refund_amount:60,pool_amount:40};
+    if(name==='getCompanyReceiptPreview') {assert.equal(args[2][0].claim_id,'chosen');return {refund_amount:60,pool_amount:40};}
     if(name==='getCompanyFundingPreview') return {funded_amount:10,personal_amount:20};
     if(name==='saveTransaction') {writes++;posted=args[0];return {};}
     throw new Error('Unexpected server call '+name);
@@ -905,6 +968,8 @@ async function testCompanyConsentUI() {
   ui.fail=error=>{throw error;};
   await ui.saveCurrentTransaction();assert.equal(writes,0);assert.equal(element('saveButton').disabled,false);
   confirm=true;await ui.saveCurrentTransaction();assert.equal(writes,1);assert.equal(posted.company_expected_pool,40);assert.equal(posted.company_surplus_confirmed,true);
+  let previews=0;ui.previewRefund=async()=>{previews++;};
+  ui.formTransaction=()=>({...receipt,allocations:undefined});await ui.saveCurrentTransaction();assert.equal(previews,1);assert.equal(writes,1);
   vm.runInContext("selectedType='EXPENSE'",ui);element('owner').value='COMPANY';
   ui.formTransaction=()=>({amount:30,status:'ACTIVE',transaction_type:'EXPENSE',expense_owner:'COMPANY',company_funding:'POOL'});
   confirm=false;await ui.saveCurrentTransaction();assert.equal(writes,1);

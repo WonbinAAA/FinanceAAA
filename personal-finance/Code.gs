@@ -350,13 +350,27 @@ function getCompanyFundingPreview(input,id) {
     return {funded_amount:funded/100,personal_amount:(cents_(tx.amount)-funded)/100,source:tx.company_funding||'PERSONAL'};
   });
 }
-function getCompanyReceiptPreview(amount,excludeId) {
+function getCompanyReceiptPreview(amount,excludeId,selectedAllocations) {
   const run=()=>{
     amount=positive_(amount);
-    const claims=companyClaims_(excludeId||''),due=claims.reduce((s,c)=>s+cents_(c.remaining_amount),0);
-    const refund=Math.min(cents_(amount),due);
+    const claims=companyClaims_(excludeId||'').filter(c=>cents_(c.remaining_amount)>0)
+      .sort((a,b)=>String(a.expense_date).localeCompare(String(b.expense_date))||String(a.claim_id).localeCompare(String(b.claim_id)));
+    const due=claims.reduce((s,c)=>s+cents_(c.remaining_amount),0);
+    let refund,allocations;
+    if(selectedAllocations!=null) {
+      if(!Array.isArray(selectedAllocations)) throw new Error('รายการจับคู่เงินคืนไม่ถูกต้อง');
+      refund=selectedAllocations.reduce((s,item)=>s+cents_(positive_(item.amount)),0);
+      if(refund>cents_(amount)) throw new Error('ยอดที่เลือกคืนเกินเงินที่ได้รับจริง');
+      allocations=validateAllocations_(refund/100,selectedAllocations,excludeId||'');
+    } else {
+      // Preserve the legacy API for LINE and older clients. The web form sends an explicit selection.
+      refund=Math.min(cents_(amount),due);
+      allocations=refund?fifoAllocations_(refund/100,excludeId||''):[];
+    }
     return {refund_amount:refund/100,pool_amount:(cents_(amount)-refund)/100,remaining:due/100,
-      allocations:refund?fifoAllocations_(refund/100,excludeId||''):[]};
+      allocations,claims:publicRows_(claims),existing_allocations:excludeId?matches_()
+        .filter(m=>m.status==='ACTIVE'&&m.reimbursement_transaction_id===excludeId)
+        .map(m=>({claim_id:m.claim_id,amount:Number(m.amount)})):[]};
   };
   return readCache_?run():withReadCache_(run);
 }
@@ -371,7 +385,7 @@ function planCompanyTransaction_(tx,input,excludeRefundId) {
   }
   if(!isCompanyRefund_(tx)) return [];
   if(input.company_surplus_to_pool===true||tx.company_kind==='MIXED_RECEIPT') {
-    const split=getCompanyReceiptPreview(tx.amount,excludeRefundId);
+    const split=getCompanyReceiptPreview(tx.amount,excludeRefundId,input.allocations);
     if(input.company_expected_refund!=null&&(cents_(input.company_expected_refund)!==cents_(split.refund_amount)||cents_(input.company_expected_pool)!==cents_(split.pool_amount))) throw new Error('ยอดค้างคืนเปลี่ยนแล้ว กรุณาตรวจการแบ่งเงินรับใหม่');
     if(split.pool_amount>0&&(input.company_surplus_confirmed!==true||
       cents_(input.company_expected_refund)!==cents_(split.refund_amount)||cents_(input.company_expected_pool)!==cents_(split.pool_amount)))
