@@ -768,7 +768,40 @@ test('Dialog scroll lock retains background position through nested dialogs',()=
   assert.deepEqual(scrollCalls,[[0,240]]);
 });
 
-testFrontendSaveNavigation().then(()=>{
+async function testRefundFormRecovery() {
+  const source=fs.readFileSync('JavaScript.html','utf8');
+  const body=source.slice(source.indexOf('<script>')+8,source.indexOf("document.addEventListener('click'"));
+  const elements={},inputs=[];
+  const element=id=>elements[id] ||= {value:'',checked:false,disabled:false,innerHTML:'',textContent:'',classList:{toggle(){},add(){},remove(){}},querySelectorAll:()=>inputs};
+  const ui=vm.createContext({console,window:{},document:{getElementById:element},setTimeout,clearTimeout});
+  vm.runInContext(body,ui);
+  vm.runInContext("selectedType='INCOME';BOOT={categories:[{category_id:'REFUND',category_name:'เงินคืนบริษัท'}],company:{remaining:100,claims:[{claim_id:'LEGACY',expense_date:'2026-10-01',description:'ไม่มีโปรเจกต์'}]}}",ui);
+  element('category').value='REFUND';element('amount').value='100';
+  ui.toggleRefundField();assert.match(element('refundBalanceHint').textContent,/100\.00/);
+  let finish;
+  ui.server=()=>new Promise(resolve=>{finish=resolve;});
+  const pending=ui.previewRefund();
+  element('amount').value='50';ui.clearRefundPreview();
+  finish([{claim_id:'LEGACY',amount:100}]);await pending;
+  assert.equal(element('refundMatches').innerHTML,'');
+  assert.equal(element('refundPreviewButton').disabled,false);
+  ui.server=async()=>{throw new Error('ยอดเงินคืน 150.00 บาท เกินยอดที่บริษัทค้างคืน 100.00 บาท');};
+  element('amount').value='150';await ui.previewRefund();
+  assert.match(element('refundFeedback').textContent,/150\.00.*100\.00/);
+  assert.equal(element('refundMatches').innerHTML,'');
+  assert.equal(element('refundPreviewButton').disabled,false);
+  element('amount').value='100';
+  ui.server=async()=>[{claim_id:'LEGACY',amount:100}];await ui.previewRefund();
+  assert.match(element('refundMatches').innerHTML,/รายการทั่วไป · ไม่มีโปรเจกต์/);
+  inputs.push({dataset:{claim:'LEGACY'},value:'100'},{dataset:{claim:'SKIP'},value:'0'});
+  const tx=ui.formTransaction();
+  assert.equal(tx.project_name,'');assert.equal(tx.allocations.length,1);assert.equal(tx.allocations[0].amount,100);
+  element('amount').value='50';ui.clearRefundPreview();
+  assert.equal(ui.formTransaction().allocations,undefined);
+  console.log('PASS Refund form shows legacy claims, persistent errors and discards stale previews');
+}
+
+testFrontendSaveNavigation().then(testRefundFormRecovery).then(()=>{
   testMutationSnapshotRendering();
   testFreshOnlyStartup();
   testCompanyProjectField();

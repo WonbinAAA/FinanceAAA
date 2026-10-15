@@ -420,7 +420,7 @@ function fifoAllocations_(amount,excludeRefundId) {
   companyClaims_(excludeRefundId).filter(c=>cents_(c.remaining_amount)>0)
     .sort((a,b)=>String(a.expense_date).localeCompare(String(b.expense_date))||String(a.claim_id).localeCompare(String(b.claim_id)))
     .forEach(c=>{const n=Math.min(left,cents_(c.remaining_amount));if(n>0){result.push({claim_id:c.claim_id,amount:n/100});left-=n;}});
-  if(left>0) throw new Error("ยอดเงินคืนเกินยอดที่บริษัทค้างคืน");
+  if(left>0) throw new Error("ยอดเงินคืน "+Number(amount).toFixed(2)+" บาท เกินยอดที่บริษัทค้างคืน "+((cents_(amount)-left)/100).toFixed(2)+" บาท กรุณาตรวจยอดที่ได้รับจริงและรายการค้างคืน");
   return result;
 }
 function getReimbursementPreview(amount,excludeRefundId) { return fifoAllocations_(positive_(amount),excludeRefundId||""); }

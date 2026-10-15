@@ -292,11 +292,29 @@ function isRefund() {
   return selectedType === 'INCOME' && (BOOT?.categories || []).some(item =>
     item.category_id === $('category').value && item.category_name === 'เงินคืนบริษัท');
 }
+let refundPreviewRequest = 0;
+let refundAmountAtPreview = null;
+function updateRefundHint() {
+  let remaining = Number(BOOT?.company?.remaining || 0);
+  const oldCategory = (BOOT?.filterCategories || BOOT?.categories || []).find(c=>c.category_id===selectedTx?.category_id);
+  if(selectedTx?.status==='ACTIVE'&&oldCategory?.category_name==='เงินคืนบริษัท') remaining += Number(selectedTx.amount || 0);
+  $('refundBalanceHint').textContent = 'ยอดค้างคืนจากข้อมูลที่โหลด: ' + money(remaining);
+}
+function clearRefundPreview() {
+  refundPreviewRequest++;
+  refundAmountAtPreview = null;
+  $('refundMatches').innerHTML = '';
+  $('refundPreviewButton').disabled = false;
+  $('refundPreviewButton').textContent = 'ตรวจและจับคู่เก่าสุดก่อน';
+  $('refundFeedback').textContent = '';
+}
 function toggleRefundField() {
   $('refundMatchField').classList.toggle('hidden', !isRefund() || $('draft').checked);
-  if (!isRefund()) $('refundMatches').innerHTML = '';
+  if (!isRefund()) clearRefundPreview();
+  else updateRefundHint();
 }
 function resetForm() {
+  clearRefundPreview();
   selectedTx = null;
   $('entryDialogTitle').textContent = 'เพิ่มรายการ';
   $('txDate').value = BOOT?.today || '';
@@ -324,14 +342,34 @@ function openEntryDialog() {
 }
 function closeEntryDialog() { $('entryDialog').close(); }
 async function previewRefund() {
+  const amount = Number($('amount').value);
+  clearRefundPreview();
+  if(!isRefund()) return;
+  if(!Number.isFinite(amount)||amount<=0||Math.abs(amount*100-Math.round(amount*100))>0.000001) {
+    $('refundFeedback').textContent = 'กรุณากรอกยอดเงินคืนมากกว่า 0 และทศนิยมไม่เกิน 2 ตำแหน่ง';
+    return;
+  }
+  const request = refundPreviewRequest;
+  $('refundPreviewButton').disabled = true;
+  $('refundPreviewButton').textContent = 'กำลังตรวจยอดล่าสุด...';
   try {
-    const items = await server('getReimbursementPreview', Number($('amount').value), selectedTx?.transaction_id || '');
+    const items = await server('getReimbursementPreview', amount, selectedTx?.transaction_id || '');
+    if(request!==refundPreviewRequest||!isRefund()||Number($('amount').value)!==amount) return;
     const claims = Object.fromEntries((BOOT?.company?.claims || []).map(item => [item.claim_id, item]));
     $('refundMatches').innerHTML = items.map(item => `<div class="match-row">
-      <span>${dateTH(claims[item.claim_id]?.expense_date)} · ${esc(claims[item.claim_id]?.description || item.claim_id)}</span>
+      <span>${dateTH(claims[item.claim_id]?.expense_date)} · ${esc(claims[item.claim_id]?.description || item.claim_id)}<small>${esc(claims[item.claim_id]?.project_name || 'รายการทั่วไป · ไม่มีโปรเจกต์')}</small></span>
       <input type="number" min="0" step="0.01" data-claim="${esc(item.claim_id)}" value="${item.amount}" aria-label="ยอดจับคู่">
     </div>`).join('');
-  } catch (error) { fail(error); }
+    refundAmountAtPreview = amount;
+    $('refundFeedback').textContent = 'จับคู่ ' + items.length + ' รายการ รวม ' + money(amount) + ' แล้ว ยังไม่บันทึกจนกว่าจะกดบันทึก';
+  } catch (error) {
+    if(request===refundPreviewRequest) $('refundFeedback').textContent = error?.message || 'ตรวจยอดไม่สำเร็จ กรุณาลองใหม่';
+  } finally {
+    if(request===refundPreviewRequest) {
+      $('refundPreviewButton').disabled = false;
+      $('refundPreviewButton').textContent = 'ตรวจและจับคู่เก่าสุดก่อน';
+    }
+  }
 }
 function formTransaction() {
   const project = selectedTx || selectedType !== 'EXPENSE' || $('owner').value !== 'COMPANY'
@@ -352,7 +390,7 @@ function formTransaction() {
   };
   if (isRefund() && input.status === 'ACTIVE') {
     const matches = [...$('refundMatches').querySelectorAll('input[data-claim]')];
-    if (matches.length) input.allocations = matches.map(el => ({ claim_id: el.dataset.claim, amount: Number(el.value) }));
+    if (matches.length && refundAmountAtPreview === input.amount) input.allocations = matches.map(el => ({ claim_id: el.dataset.claim, amount: Number(el.value) })).filter(item=>item.amount!==0);
   }
   return input;
 }
@@ -361,6 +399,10 @@ async function saveCurrentTransaction() {
   if (button.disabled) return;
   const input = formTransaction();
   if (!(input.amount > 0)) return notify('warning', 'กรุณากรอกจำนวนเงิน');
+  if(isRefund()&&input.allocations&&Math.round(input.allocations.reduce((sum,item)=>sum+item.amount,0)*100)!==Math.round(input.amount*100)) {
+    $('refundFeedback').textContent = 'ยอดจับคู่รวมต้องเท่ากับเงินคืน ' + money(input.amount) + ' กรุณาตรวจและจับคู่ใหม่';
+    return;
+  }
   if (selectedType === 'TRANSFER' && (!input.to_account_id || input.to_account_id === input.account_id)) return notify('warning', 'บัญชีปลายทางไม่ถูกต้อง');
   button.disabled = true;
   button.textContent = 'กำลังบันทึก...';
@@ -374,7 +416,10 @@ async function saveCurrentTransaction() {
     closeEntryDialog();
     showPage('Dashboard');
     notify('success', 'บันทึกรายการแล้ว', input.status === 'DRAFT' ? 'ฉบับร่างยังไม่กระทบยอดเงินจริง' : 'ยอดเงินอัปเดตแล้ว');
-  } catch (error) { fail(error); }
+  } catch (error) {
+    if(isRefund()) $('refundFeedback').textContent = error?.message || 'บันทึกเงินคืนไม่สำเร็จ กรุณาตรวจยอดและลองใหม่';
+    else fail(error);
+  }
   finally { button.disabled = false; button.textContent = selectedTx ? 'บันทึกการแก้ไข' : 'บันทึก'; }
 }
 function renderDashboard(data) {
@@ -959,6 +1004,7 @@ $('helpDialog').addEventListener('cancel', event => { event.preventDefault(); cl
   $(id).addEventListener('change', loadTransactions));
 $('filterSearch').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadTransactions, 250); });
 $('category').addEventListener('change', toggleRefundField);
+$('amount').addEventListener('input', () => { if(isRefund()) clearRefundPreview(); });
 $('draft').addEventListener('change', toggleRefundField);
 $('debtDueMonthEdit').addEventListener('change',updateDebtDueMonth);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
