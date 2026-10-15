@@ -260,10 +260,14 @@ function setCategoryActive(id,enabled) { return withLock_(()=>{
 }); }
 function validateTx_(input,allowedInactiveCategoryId,allowedLegacyCategoryId) {
   const companyKind=String(input.company_kind||"");
-  if(companyKind&&!['ADVANCE','RETURN','MOVE','SELF_ALLOWANCE','OTHER_ALLOWANCE'].includes(companyKind)) throw new Error('ประเภทเงินบริษัทไม่ถูกต้อง');
+  if(companyKind&&!['ADVANCE','RETURN','MOVE','SELF_ALLOWANCE','OTHER_ALLOWANCE','MIXED_RECEIPT'].includes(companyKind)) throw new Error('ประเภทเงินบริษัทไม่ถูกต้อง');
+  const funding=String(input.company_funding||'');
+  if(funding&&!['POOL','PROJECT','PERSONAL'].includes(funding)) throw new Error('แหล่งเงินบริษัทไม่ถูกต้อง');
+  if(funding==='PERSONAL'&&['ADVANCE','RETURN','MOVE','SELF_ALLOWANCE'].includes(companyKind)) throw new Error('รายการนี้ต้องใช้เงินบริษัทจากกองกลางหรือโปรเจกต์');
   const project=String(input.project_name||'').trim().replace(/\s+/g,' ');
   if(project.length>80) throw new Error('ชื่อโปรเจกต์ยาวเกิน 80 ตัวอักษร');
-  if(companyKind&&!project) throw new Error('กรุณาระบุโปรเจกต์');
+  if(companyKind&&companyKind!=='MIXED_RECEIPT'&&funding!=='POOL'&&funding!=='PERSONAL'&&!project) throw new Error('กรุณาระบุโปรเจกต์');
+  if(funding==='PROJECT'&&!project) throw new Error('กรุณาเลือกโปรเจกต์ที่จะหักเงิน');
   const type=String(input.transaction_type||"").toUpperCase(), amount=positive_(input.amount);
   if(!["INCOME","EXPENSE","TRANSFER"].includes(type)) throw new Error("ประเภทรายการไม่ถูกต้อง");
   const accounts=rows_(SH.ACCOUNTS).filter(a=>active_(a.is_active));
@@ -279,15 +283,18 @@ function validateTx_(input,allowedInactiveCategoryId,allowedLegacyCategoryId) {
       throw new Error("หมวดหมู่นี้หยุดใช้งานแล้ว กรุณาเลือกหมวดใหม่");
   }
   const status=String(input.status||"ACTIVE").toUpperCase(), source=String(input.source_type||"WEB").toUpperCase();
+  if(companyKind==='MIXED_RECEIPT'&&(type!=='INCOME'||category_(input.category_id)?.category_name!=='เงินคืนบริษัท')) throw new Error('เงินรับผสมต้องใช้หมวดเงินคืนบริษัท');
   if(!["ACTIVE","DRAFT"].includes(status)) throw new Error("สถานะรายการไม่ถูกต้อง");
   if(!["WEB","LINE","IMPORT"].includes(source)) throw new Error("แหล่งที่มาของรายการไม่ถูกต้อง");
   if(['ADVANCE','MOVE'].includes(companyKind)&&type!=='INCOME'||['RETURN','SELF_ALLOWANCE','OTHER_ALLOWANCE'].includes(companyKind)&&(type!=='EXPENSE'||input.expense_owner!=='COMPANY')) throw new Error('ประเภทเงินบริษัทไม่ตรงกับรายการ');
   const target=String(input.to_project||'').trim().replace(/\s+/g,' ');
   if(companyKind==='MOVE'&&(!target||target===project||target.length>80)) throw new Error('กรุณาเลือกโปรเจกต์ปลายทางที่ต่างกัน');
-  if(companyKind==='MOVE'&&input.project_finished!==true) throw new Error('กรุณายืนยันว่าโปรเจกต์ต้นทางจบแล้ว');
+  if(companyKind==='MOVE'&&funding==='POOL'&&target===COMPANY_POOL) throw new Error('กองเงินต้นทางและปลายทางต้องต่างกัน');
+  if(companyKind==='MOVE'&&funding!=='POOL'&&input.project_finished!==true) throw new Error('กรุณายืนยันว่าโปรเจกต์ต้นทางจบแล้ว');
   const recipient=String(input.recipient||'').trim();
   if(recipient.length>80||companyKind==='OTHER_ALLOWANCE'&&!recipient) throw new Error('กรุณาระบุชื่อผู้รับไม่เกิน 80 ตัวอักษร');
-  return {project_name:project,company_kind:companyKind,to_project:companyKind==='MOVE'?target:'',recipient,
+  return {company_funding:funding,company_funded_amount:'',company_pool_amount:0,
+    project_name:project,company_kind:companyKind,to_project:companyKind==='MOVE'?target:'',recipient,
     transaction_date:isoDate_(input.transaction_date),transaction_type:type,account_id:input.account_id,
     to_account_id:type==="TRANSFER"?input.to_account_id:"",category_id:type==="TRANSFER"?"":input.category_id,
     amount,expense_owner:type==="EXPENSE"?input.expense_owner:"",description:String(input.description||"").trim(),
@@ -296,14 +303,14 @@ function validateTx_(input,allowedInactiveCategoryId,allowedLegacyCategoryId) {
 function newTx_(fields) { const t=now_(); return Object.assign({transaction_id:id_("TX"),user_id:USER_ID,created_at:t,updated_at:t,void_reason:""},fields); }
 function saveTransaction(input) { return withLock_(()=>{
   const tx=newTx_(validateTx_(input));
+  const allocations=planCompanyTransaction_(tx,input,'');
   prepareCompanyTx_(tx);
   checkCompanyChange_(tx);
   if(tx.source_type!=="WEB"&&tx.status!=="DRAFT") throw new Error("รายการจาก LINE/IMPORT ต้องบันทึกเป็น DRAFT ก่อนยืนยัน");
-  const allocations=isCompanyRefund_(tx)&&tx.status==="ACTIVE"?validateAllocations_(tx.amount,input.allocations||fifoAllocations_(tx.amount)):[];
   appendObj_(SH.TX,tx);
   if(tx.status==="ACTIVE"&&isCompanyExpense_(tx)) createClaim_(tx);
   if(allocations.length) addMatches_(tx.transaction_id,allocations);
-  if(allocations.length||tx.project_name||tx.company_kind) updateClaimTotals_();
+  if(allocations.length||tx.project_name||tx.company_kind||tx.company_funding) updateClaimTotals_();
   audit_("TRANSACTION",tx.transaction_id,"CREATE","","",JSON.stringify(tx),"");
   return transactionMutationResult_({id:tx.transaction_id});
 }); }
@@ -321,19 +328,76 @@ function isCompanyExpense_(tx) {
   return tx.transaction_type==='EXPENSE'&&tx.expense_owner==='COMPANY'&&tx.company_kind!=='RETURN';
 }
 function prepareCompanyTx_(tx) {
-  if(!tx.project_name&&!tx.company_kind&&!tx.recipient) return;
-  ['project_name','company_kind','to_project','recipient'].forEach(key=>ensureColumn_(SH.TX,key,key));
+  if(!tx.project_name&&!tx.company_kind&&!tx.recipient&&!tx.company_funding) return;
+  ['project_name','company_kind','to_project','recipient','company_funding','company_funded_amount','company_pool_amount'].forEach(key=>ensureColumn_(SH.TX,key,key));
+}
+const COMPANY_POOL = 'กองกลางบริษัท';
+function companyWallet_(tx) {
+  if(tx.company_funding==='PERSONAL') return '';
+  if(tx.company_funding==='POOL') return COMPANY_POOL;
+  return String(tx.project_name||'');
+}
+function companyCandidate_(tx) {
+  const list=rows_(SH.TX),found=list.some(t=>t.transaction_id===tx.transaction_id);
+  return found?list.map(t=>t.transaction_id===tx.transaction_id?tx:t):list.concat([tx]);
+}
+function getCompanyFundingPreview(input,id) {
+  return withReadCache_(()=>{
+    const old=id?rows_(SH.TX).find(t=>t.transaction_id===id):null;
+    if(id&&!old) throw new Error('ไม่พบรายการเดิม');
+    const tx=Object.assign({},old||{transaction_id:'PREVIEW'},validateTx_(Object.assign({},old||{},input,{status:'ACTIVE'}),old?.category_id,old?.category_id));
+    const ledger=companyLedger_(companyCandidate_(tx)),funded=ledger.funding[tx.transaction_id]||0;
+    return {funded_amount:funded/100,personal_amount:(cents_(tx.amount)-funded)/100,source:tx.company_funding||'PERSONAL'};
+  });
+}
+function getCompanyReceiptPreview(amount,excludeId) {
+  const run=()=>{
+    amount=positive_(amount);
+    const claims=companyClaims_(excludeId||''),due=claims.reduce((s,c)=>s+cents_(c.remaining_amount),0);
+    const refund=Math.min(cents_(amount),due);
+    return {refund_amount:refund/100,pool_amount:(cents_(amount)-refund)/100,remaining:due/100,
+      allocations:refund?fifoAllocations_(refund/100,excludeId||''):[]};
+  };
+  return readCache_?run():withReadCache_(run);
+}
+function planCompanyTransaction_(tx,input,excludeRefundId) {
+  if(isCompanyExpense_(tx)&&tx.company_funding&&tx.status==='ACTIVE') {
+    const ledger=companyLedger_(companyCandidate_(tx)),funded=ledger.funding[tx.transaction_id]||0,short=cents_(tx.amount)-funded;
+    if(input.company_expected_personal!=null&&cents_(input.company_expected_personal)!==short) throw new Error('ยอดแหล่งเงินเปลี่ยนแล้ว กรุณาตรวจและยืนยันใหม่');
+    if(tx.company_funding!=='PERSONAL'&&short>0&&
+      (input.company_shortfall_confirmed!==true||cents_(input.company_expected_personal)!==short))
+      throw new Error('เงินบริษัทไม่พอ ขาด '+(short/100).toFixed(2)+' บาท กรุณาตรวจและยืนยันใช้เงินส่วนตัวส่วนที่ขาด');
+    tx.company_funded_amount=funded/100;
+  }
+  if(!isCompanyRefund_(tx)) return [];
+  if(input.company_surplus_to_pool===true||tx.company_kind==='MIXED_RECEIPT') {
+    const split=getCompanyReceiptPreview(tx.amount,excludeRefundId);
+    if(input.company_expected_refund!=null&&(cents_(input.company_expected_refund)!==cents_(split.refund_amount)||cents_(input.company_expected_pool)!==cents_(split.pool_amount))) throw new Error('ยอดค้างคืนเปลี่ยนแล้ว กรุณาตรวจการแบ่งเงินรับใหม่');
+    if(split.pool_amount>0&&(input.company_surplus_confirmed!==true||
+      cents_(input.company_expected_refund)!==cents_(split.refund_amount)||cents_(input.company_expected_pool)!==cents_(split.pool_amount)))
+      throw new Error('กรุณาตรวจและยืนยันยอดคืน '+split.refund_amount.toFixed(2)+' บาท และส่วนเกินเข้ากองกลาง '+split.pool_amount.toFixed(2)+' บาท อีกครั้ง');
+    tx.company_kind=split.pool_amount>0?'MIXED_RECEIPT':'';
+    tx.company_pool_amount=split.pool_amount;
+    if(tx.status!=='ACTIVE') return [];
+    if(!split.refund_amount) {
+      if(input.allocations?.length) throw new Error('ไม่มียอดค้างคืนสำหรับจับคู่');
+      return [];
+    }
+    return validateAllocations_(split.refund_amount,input.allocations||split.allocations,excludeRefundId);
+  }
+  return tx.status==='ACTIVE'?validateAllocations_(tx.amount,input.allocations||fifoAllocations_(tx.amount,excludeRefundId),excludeRefundId):[];
 }
 // Replay project funding in transaction date and original row order. Legacy expenses stay unassigned.
 function companyLedger_(transactions) {
   const txs=(transactions||rows_(SH.TX)).filter(t=>t.status==='ACTIVE');
-  const wallets={},funding={},received={},spent={};
+  const wallets=Object.create(null),funding={},received=Object.create(null),spent=Object.create(null);
   const sorted=txs.map((t,i)=>({t,i})).sort((a,b)=>String(a.t.transaction_date).localeCompare(String(b.t.transaction_date))||a.i-b.i);
   for(const {t} of sorted) {
-    const p=String(t.project_name||''),kind=t.company_kind||'',n=cents_(t.amount);
+    const p=kindWallet(t),kind=t.company_kind||'',n=cents_(t.amount);
     if(!p) continue;
     wallets[p] = wallets[p] || 0; received[p] = received[p] || 0; spent[p] = spent[p] || 0;
-    if(kind==='ADVANCE') {wallets[p]+=n;received[p]+=n;}
+    if(kind==='MIXED_RECEIPT') {const pool=cents_(t.company_pool_amount);wallets[p]+=pool;received[p]+=pool;}
+    else if(kind==='ADVANCE') {wallets[p]+=n;received[p]+=n;}
     else if(kind==='MOVE') {
       if(wallets[p]<n) throw new Error('เงินล่วงหน้าไม่พอสำหรับย้ายจากโปรเจกต์ '+p);
       wallets[p]-=n; wallets[t.to_project]=(wallets[t.to_project]||0)+n;
@@ -341,13 +405,17 @@ function companyLedger_(transactions) {
       if(wallets[p]<n) throw new Error('เงินล่วงหน้าไม่พอสำหรับคืนบริษัทในโปรเจกต์ '+p);
       wallets[p]-=n;
     } else if(isCompanyExpense_(t)) {
-      const used=Math.min(n,wallets[p]);
+      const fixed=t.company_funding&&t.company_funded_amount!==''&&t.company_funded_amount!=null;
+      const used=fixed?cents_(t.company_funded_amount):Math.min(n,wallets[p]);
+      if(used<0||used>n||used>wallets[p]) throw new Error('ยอดเงินบริษัทเปลี่ยนหรือไม่เพียงพอสำหรับรายการที่ยืนยันแล้ว กรุณาตรวจแหล่งเงินอีกครั้ง');
       if(kind==='SELF_ALLOWANCE'&&used<n) throw new Error('เบี้ยเลี้ยงให้ตัวเองต้องมีเงินล่วงหน้าเพียงพอ');
       wallets[p]-=used;funding[t.transaction_id]=used;spent[p]+=n;
     }
   }
+  function kindWallet(t) {return t.company_kind==='MIXED_RECEIPT'?COMPANY_POOL:companyWallet_(t);}
   return {funding,remaining:Object.values(wallets).reduce((a,b)=>a+b,0)/100,
-    projects:Object.keys(wallets).sort().map(project_name=>({project_name,remaining:wallets[project_name]/100,received:(received[project_name]||0)/100,spent:(spent[project_name]||0)/100}))};
+    pool:{remaining:(wallets[COMPANY_POOL]||0)/100,received:(received[COMPANY_POOL]||0)/100,spent:(spent[COMPANY_POOL]||0)/100},
+    projects:Object.keys(wallets).filter(p=>p!==COMPANY_POOL).sort().map(project_name=>({project_name,remaining:wallets[project_name]/100,received:(received[project_name]||0)/100,spent:(spent[project_name]||0)/100}))};
 }
 function checkCompanyChange_(next,removeId,excludeRefundId) {
   const original=rows_(SH.TX),id=removeId||next?.transaction_id;
@@ -364,10 +432,10 @@ function checkCompanyChange_(next,removeId,excludeRefundId) {
 }
 
 // Existing income is edited in place; its bank balance is never added a second time.
-function reclassifyCompanyAdvance(id,project) {
+function reclassifyCompanyAdvance(id,project,funding) {
   const tx=getTransaction(id);
   if(tx.status!=='ACTIVE'||tx.transaction_type!=='INCOME'||tx.company_kind||isCompanyRefund_(tx)) throw new Error('เลือกได้เฉพาะรายรับทั่วไปที่ยังใช้งานอยู่');
-  return updateTransaction(id,{company_kind:'ADVANCE',project_name:project,_reclassifyAdvance:true,reason:'เปลี่ยนรายรับเดิมเป็นเงินบริษัทล่วงหน้า'});
+  return updateTransaction(id,{company_kind:'ADVANCE',project_name:project,company_funding:funding||'',_reclassifyAdvance:true,reason:'เปลี่ยนรายรับเดิมเป็นเงินบริษัทล่วงหน้า'});
 }
 function getCompanyAdvanceCandidates() {
   return publicRows_(rows_(SH.TX).filter(t=>t.status==='ACTIVE'&&t.transaction_type==='INCOME'&&!t.company_kind&&!isCompanyRefund_(t))
@@ -411,7 +479,7 @@ function companyClaims_(excludeRefundId) {
 function getCompanySummary() {
   const claims=companyClaims_();
   const ledger=companyLedger_();
-  return {projects:ledger.projects,advance_remaining:ledger.remaining,claims:publicRows_(claims),total:claims.reduce((s,c)=>s+Number(c.claim_amount),0),
+  return {pool:ledger.pool,projects:ledger.projects,advance_remaining:ledger.remaining,claims:publicRows_(claims),total:claims.reduce((s,c)=>s+Number(c.claim_amount),0),
     returned:claims.reduce((s,c)=>s+Number(c.returned_amount),0),
     remaining:claims.reduce((s,c)=>s+Number(c.remaining_amount),0)};
 }
@@ -475,20 +543,20 @@ function updateTransaction(id,input) { return withLock_(()=>{
   const fields=validateTx_(Object.assign({},old,input,{status:"ACTIVE"}),old.category_id,
     old.expense_owner===(input.expense_owner||old.expense_owner)?old.category_id:"");
   const next=Object.assign({},old,fields,{updated_at:now_()});
+  const oldRefund=isCompanyRefund_(old),newRefund=isCompanyRefund_(next);
+  const allocations=planCompanyTransaction_(next,input,oldRefund?id:'');
   prepareCompanyTx_(next);
   const claim=companyClaims_().find(c=>c.transaction_id===id);
   const newCompany=isCompanyExpense_(next);
   if(claim&&cents_(claim.returned_amount)>0&&(!newCompany||cents_(next.amount)<cents_(claim.returned_amount)))
     throw new Error("มีเงินคืนที่จับคู่แล้ว กรุณาปรับเงินคืนก่อน");
-  const oldRefund=isCompanyRefund_(old),newRefund=isCompanyRefund_(next);
-  const allocations=newRefund?validateAllocations_(next.amount,input.allocations||fifoAllocations_(next.amount,oldRefund?id:""),oldRefund?id:""):[];
   // Refund matching is replaced below; validate funding against every other refund first.
   checkCompanyChange_(next,null,oldRefund?id:'');
   if(oldRefund) voidMatches_(id);
   writeObj_(SH.TX,old._row,next);
   if(newCompany) createClaim_(next);
   if(newRefund) addMatches_(id,allocations);
-  if(claim||newCompany||oldRefund||newRefund||next.project_name||next.company_kind) updateClaimTotals_();
+  if(claim||newCompany||oldRefund||newRefund||next.project_name||next.company_kind||next.company_funding) updateClaimTotals_();
   Object.keys(fields).filter(k=>String(old[k]||"")!==String(next[k]||"")).forEach(k=>
     audit_("TRANSACTION",id,"UPDATE",k,old[k],next[k],input.reason||"แก้ไขรายการ"));
   return transactionMutationResult_();
@@ -504,13 +572,13 @@ function confirmDraftCore_(old,input,changeSource) {
   const fields=validateTx_(Object.assign({},old,input,{status:"ACTIVE"}),old.category_id,
     old.expense_owner===(input.expense_owner||old.expense_owner)?old.category_id:"");
   const next=Object.assign({},old,fields,{updated_at:now_()});
+  const allocations=planCompanyTransaction_(next,input,'');
   prepareCompanyTx_(next);
   checkCompanyChange_(next);
-  const allocations=isCompanyRefund_(next)?validateAllocations_(next.amount,input.allocations||fifoAllocations_(next.amount)):[];
   writeObj_(SH.TX,old._row,next);
   if(isCompanyExpense_(next)) createClaim_(next);
   if(allocations.length) addMatches_(id,allocations);
-  if(allocations.length||next.project_name||next.company_kind) updateClaimTotals_();
+  if(allocations.length||next.project_name||next.company_kind||next.company_funding) updateClaimTotals_();
   audit_("TRANSACTION",id,"CONFIRM","status","DRAFT","ACTIVE","ผู้ใช้ยืนยันรายการ",changeSource);
   return transactionMutationResult_();
 }

@@ -749,6 +749,88 @@ test('Project advances, existing income, allowances, transfers and funding integ
   assert.equal(call('getCompanySummary').projects.find(p=>p.project_name==='ร่าง').remaining,700);
 });
 
+test('Company pool receives surplus once and expenses require explicit funding consent',()=>{
+  const snapshot=Object.fromEntries(Object.entries(sheets).map(([name,s])=>[name,s.data.map(r=>r.slice())]));
+  try {
+    Object.values(sheets).forEach(s=>{s.data=s.data.slice(0,2);});
+    seed('บัญชี',{account_id:'ACC002',user_id:'USR001',account_name:'กรุงไทย',opening_balance:0,is_active:true});
+    seed('หมวดหมู่',{category_id:'EXP',category_name:'อุปกรณ์',transaction_type:'EXPENSE',is_active:true});
+    seed('หมวดหมู่',{category_id:'REF',category_name:'เงินคืนบริษัท',transaction_type:'INCOME',is_active:true});
+    const expense=(amount,extra={})=>({...base,transaction_date:'2026-10-01',transaction_type:'EXPENSE',category_id:'EXP',expense_owner:'COMPANY',amount,...extra});
+    call('saveTransaction',expense(600,{company_funding:'PERSONAL'}));
+    call('saveTransaction',expense(200.25,{company_funding:'PERSONAL'}));
+    const review=call('getCompanyReceiptPreview',1000);
+    assert.equal(review.refund_amount,800.25);assert.equal(review.pool_amount,199.75);
+    const receipt={...base,transaction_date:'2026-10-02',transaction_type:'INCOME',category_id:'REF',amount:1000,company_surplus_to_pool:true};
+    const before=call('getDashboard');
+    assert.throws(()=>call('saveTransaction',{...receipt,company_surplus_confirmed:true,company_expected_refund:800,company_expected_pool:200}),/เปลี่ยน/);
+    assert.throws(()=>call('saveTransaction',receipt),/ยืนยัน/);
+    assert.equal(call('getDashboard').real_cash,before.real_cash);
+    const paid=call('saveTransaction',{...receipt,company_surplus_confirmed:true,company_expected_refund:800.25,company_expected_pool:199.75});
+    assert.equal(call('getDashboard').real_cash,before.real_cash+1000);
+    assert.equal(call('getDashboard').income,0);
+    assert.equal(call('getCompanySummary').remaining,0);
+    assert.equal(call('getCompanySummary').pool.remaining,199.75);
+    assert.equal(call('getTransaction',paid.id).company_pool_amount,199.75);
+    const poolExpense=expense(250,{transaction_date:'2026-10-03',company_funding:'POOL'});
+    const preview=call('getCompanyFundingPreview',poolExpense);
+    assert.equal(preview.funded_amount,199.75);assert.equal(preview.personal_amount,50.25);
+    assert.throws(()=>call('saveTransaction',poolExpense),/ขาด 50.25/);
+    assert.equal(call('getCompanySummary').pool.remaining,199.75);
+    const cost=call('saveTransaction',{...poolExpense,company_shortfall_confirmed:true,company_expected_personal:50.25});
+    assert.equal(call('getCompanySummary').pool.remaining,0);
+    assert.equal(call('getCompanySummary').remaining,50.25);
+    assert.equal(call('getTransaction',cost.id).company_funded_amount,199.75);
+    assert.throws(()=>call('voidTransaction',paid.id,'คืนรายการ'),/ไม่เพียงพอ/);
+    // Receiving more funds later does not erase the personal portion already approved.
+    call('saveTransaction',{...base,transaction_date:'2026-10-04',transaction_type:'INCOME',company_kind:'ADVANCE',company_funding:'POOL',amount:100});
+    assert.equal(call('getCompanySummary').remaining,50.25);
+    call('saveTransaction',expense(20,{transaction_date:'2026-10-05',company_funding:'PERSONAL'}));
+    assert.equal(call('getCompanySummary').pool.remaining,100);
+    assert.equal(call('getCompanySummary').remaining,70.25);
+    const rejected=expense(150,{transaction_date:'2026-10-05',company_funding:'POOL',company_shortfall_confirmed:true,company_expected_personal:49});
+    assert.throws(()=>call('saveTransaction',rejected),/เปลี่ยน/);
+    assert.equal(call('getCompanySummary').pool.remaining,100);
+    call('saveTransaction',{...base,transaction_date:'2026-10-06',transaction_type:'INCOME',company_kind:'ADVANCE',company_funding:'PROJECT',project_name:'งานทดสอบ',amount:80});
+    call('saveTransaction',expense(30,{transaction_date:'2026-10-06',company_funding:'PROJECT',project_name:'งานทดสอบ'}));
+    assert.equal(call('getCompanySummary').pool.remaining,100);
+    assert.equal(call('getCompanySummary').projects.find(p=>p.project_name==='งานทดสอบ').remaining,50);
+    const centsReceipt={...receipt,transaction_date:'2026-10-07',amount:70.50,company_surplus_confirmed:true,company_expected_refund:70.25,company_expected_pool:.25};
+    call('saveTransaction',centsReceipt);
+    assert.equal(call('getCompanySummary').pool.remaining,100.25);
+    assert.equal(call('getCompanySummary').remaining,0);
+    const allPool=call('getCompanyReceiptPreview',10);
+    assert.equal(allPool.refund_amount,0);assert.equal(allPool.pool_amount,10);
+    call('saveTransaction',{...receipt,transaction_date:'2026-10-08',amount:10,company_surplus_confirmed:true,company_expected_refund:0,company_expected_pool:10});
+    assert.equal(call('getCompanySummary').pool.remaining,110.25);
+    // Moving/returning money changes only the chosen wallet; no mixed receipt duplicates cash.
+    const cash=call('getDashboard').real_cash;
+    const move=call('saveTransaction',{...base,transaction_date:'2026-10-09',transaction_type:'INCOME',company_kind:'MOVE',company_funding:'POOL',to_project:'งานทดสอบ',amount:10});
+    assert.equal(call('getDashboard').real_cash,cash);
+    assert.equal(call('getCompanySummary').pool.remaining,100.25);
+    call('voidTransaction',move.id,'ทดสอบ');
+    assert.equal(call('getCompanySummary').pool.remaining,110.25);
+    assert.throws(()=>call('saveTransaction',{...base,transaction_date:'2026-10-09',transaction_type:'INCOME',company_kind:'MOVE',company_funding:'POOL',to_project:'กองกลางบริษัท',amount:1}),/ต่างกัน/);
+    const ownCash=call('getDashboard').real_cash;
+    const own=call('saveTransaction',expense(20,{transaction_date:'2026-10-10',company_kind:'SELF_ALLOWANCE',company_funding:'POOL'}));
+    assert.equal(call('getDashboard').income,20);assert.equal(call('getDashboard').real_cash,ownCash);
+    assert.equal(call('getCompanySummary').pool.remaining,90.25);
+    call('voidTransaction',own.id,'ทดสอบ');
+    assert.equal(call('getCompanySummary').pool.remaining,110.25);
+    const poolBeforeReturn=call('getDashboard');
+    call('saveTransaction',expense(.25,{transaction_date:'2026-10-11',company_kind:'RETURN',company_funding:'POOL'}));
+    assert.equal(call('getCompanySummary').pool.remaining,110);
+    assert.equal(call('getDashboard').real_cash,poolBeforeReturn.real_cash-.25);
+    assert.equal(call('getDashboard').personal_expense,poolBeforeReturn.personal_expense);
+    const draft=call('saveTransaction',{...base,transaction_date:'2026-10-12',transaction_type:'INCOME',company_kind:'ADVANCE',company_funding:'POOL',amount:5,status:'DRAFT'});
+    assert.equal(call('getCompanySummary').pool.remaining,110);
+    call('confirmDraft',draft.id,{});
+    assert.equal(call('getCompanySummary').pool.remaining,115);
+  } finally {
+    Object.keys(sheets).forEach(name=>{if(snapshot[name]) sheets[name].data=snapshot[name];else delete sheets[name];});
+  }
+});
+
 test('Dialog scroll lock retains background position through nested dialogs',()=>{
   const source=fs.readFileSync('JavaScript.html','utf8');
   const start=source.indexOf('function installDialogScrollLock()');
@@ -782,7 +864,7 @@ async function testRefundFormRecovery() {
   ui.server=()=>new Promise(resolve=>{finish=resolve;});
   const pending=ui.previewRefund();
   element('amount').value='50';ui.clearRefundPreview();
-  finish([{claim_id:'LEGACY',amount:100}]);await pending;
+  finish({refund_amount:100,pool_amount:0,remaining:100,allocations:[{claim_id:'LEGACY',amount:100}]});await pending;
   assert.equal(element('refundMatches').innerHTML,'');
   assert.equal(element('refundPreviewButton').disabled,false);
   ui.server=async()=>{throw new Error('ยอดเงินคืน 150.00 บาท เกินยอดที่บริษัทค้างคืน 100.00 บาท');};
@@ -791,7 +873,7 @@ async function testRefundFormRecovery() {
   assert.equal(element('refundMatches').innerHTML,'');
   assert.equal(element('refundPreviewButton').disabled,false);
   element('amount').value='100';
-  ui.server=async()=>[{claim_id:'LEGACY',amount:100}];await ui.previewRefund();
+  ui.server=async()=>({refund_amount:100,pool_amount:0,remaining:100,allocations:[{claim_id:'LEGACY',amount:100}]});await ui.previewRefund();
   assert.match(element('refundMatches').innerHTML,/รายการทั่วไป · ไม่มีโปรเจกต์/);
   inputs.push({dataset:{claim:'LEGACY'},value:'100'},{dataset:{claim:'SKIP'},value:'0'});
   const tx=ui.formTransaction();
@@ -801,7 +883,36 @@ async function testRefundFormRecovery() {
   console.log('PASS Refund form shows legacy claims, persistent errors and discards stale previews');
 }
 
-testFrontendSaveNavigation().then(testRefundFormRecovery).then(()=>{
+async function testCompanyConsentUI() {
+  const source=fs.readFileSync('JavaScript.html','utf8');
+  const body=source.slice(source.indexOf('<script>')+8,source.indexOf("document.addEventListener('click'"));
+  const elements={},element=id=>elements[id] ||= {value:'',disabled:false,textContent:'',classList:{toggle(){},add(){},remove(){}}};
+  const ui=vm.createContext({console,window:{},document:{getElementById:element},setTimeout,clearTimeout});
+  vm.runInContext(body,ui);
+  vm.runInContext("selectedType='INCOME';BOOT={categories:[{category_id:'REF',category_name:'เงินคืนบริษัท'}]}",ui);
+  element('category').value='REF';
+  let writes=0,posted,confirm=false;
+  const receipt={amount:100,status:'ACTIVE',transaction_type:'INCOME',category_id:'REF',company_surplus_to_pool:true};
+  ui.formTransaction=()=>({...receipt});
+  ui.server=async(name,...args)=>{
+    if(name==='getCompanyReceiptPreview') return {refund_amount:60,pool_amount:40};
+    if(name==='getCompanyFundingPreview') return {funded_amount:10,personal_amount:20};
+    if(name==='saveTransaction') {writes++;posted=args[0];return {};}
+    throw new Error('Unexpected server call '+name);
+  };
+  ui.sweet=async()=>({isConfirmed:confirm});
+  ui.renderMutation=()=>{};ui.closeEntryDialog=()=>{};ui.showPage=()=>{};ui.notify=()=>{};ui.rememberProject=()=>{};
+  ui.fail=error=>{throw error;};
+  await ui.saveCurrentTransaction();assert.equal(writes,0);assert.equal(element('saveButton').disabled,false);
+  confirm=true;await ui.saveCurrentTransaction();assert.equal(writes,1);assert.equal(posted.company_expected_pool,40);assert.equal(posted.company_surplus_confirmed,true);
+  vm.runInContext("selectedType='EXPENSE'",ui);element('owner').value='COMPANY';
+  ui.formTransaction=()=>({amount:30,status:'ACTIVE',transaction_type:'EXPENSE',expense_owner:'COMPANY',company_funding:'POOL'});
+  confirm=false;await ui.saveCurrentTransaction();assert.equal(writes,1);
+  confirm=true;await ui.saveCurrentTransaction();assert.equal(writes,2);assert.equal(posted.company_shortfall_confirmed,true);assert.equal(posted.company_expected_personal,20);
+  console.log('PASS Surplus and personal shortfall confirmation can be cancelled without writing');
+}
+
+testFrontendSaveNavigation().then(testRefundFormRecovery).then(testCompanyConsentUI).then(()=>{
   testMutationSnapshotRendering();
   testFreshOnlyStartup();
   testCompanyProjectField();

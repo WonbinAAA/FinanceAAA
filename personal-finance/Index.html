@@ -99,8 +99,9 @@
 
     <section id="pageCompany" class="page hidden">
       <div class="page-heading"><h2>เงินบริษัท</h2><p>ดูเงินที่ยังถืออยู่ และเงินที่บริษัทต้องคืนให้คุณ</p></div>
-      <section class="company-funds-hero"><div class="company-hero-top"><span>เงินบริษัทเหลือใช้</span><span class="company-funds-tag">เงินล่วงหน้า</span></div><b id="companyAdvanceTotal">฿0.00</b><p>เงินบริษัทที่คุณยังถืออยู่ รวมทุกโปรเจกต์</p><div class="company-hero-note">ยอดนี้รวมอยู่ในบัญชีแล้ว ยังไม่ใช่เงินส่วนตัว</div></section>
+      <section class="company-funds-hero"><div class="company-hero-top"><span>เงินบริษัทเหลือใช้</span><span class="company-funds-tag">กองกลาง + โปรเจกต์</span></div><b id="companyAdvanceTotal">฿0.00</b><p>เงินบริษัทที่คุณยังถืออยู่ รวมกองกลางและทุกโปรเจกต์</p><div class="company-hero-note">ยอดนี้รวมอยู่ในบัญชีแล้ว ยังไม่ใช่เงินส่วนตัว</div></section>
       <section class="company-project-section"><div class="company-section-heading"><h3>เงินแยกตามโปรเจกต์</h3><span>รับ · ใช้ · เหลือ</span></div><div id="companyProjectList" class="company-projects"></div></section>
+      <section class="company-pool-card"><div><b>กองกลางบริษัท</b><p>สำหรับค่าน้ำมัน อุปกรณ์ออฟฟิศ และค่าใช้จ่ายทั่วไป</p></div><strong id="companyPoolRemaining">฿0.00</strong><div class="company-pool-breakdown"><span>รับเข้า <b id="companyPoolReceived">฿0.00</b></span><span>ใช้จ่าย <b id="companyPoolSpent">฿0.00</b></span></div></section>
       <div class="company-section-heading"><h3>เงินที่คุณออกแทนบริษัท</h3></div>
       <div class="summary-grid company-claim-summary">
         <div class="card metric"><span>ยอดออกแทนทั้งหมด</span><b id="claimTotal">฿0.00</b></div>
@@ -109,7 +110,7 @@
       </div>
       <section class="company-actions-card"><div class="company-section-heading"><h3>บันทึกเงินบริษัท</h3></div><div class="company-action-grid">
         <button class="company-action action-receive" onclick="openCompanyFunds('ADVANCE')"><span class="company-action-icon">↓</span><span>รับเงินล่วงหน้า<small>เพิ่มเงินให้โปรเจกต์</small></span></button>
-        <button class="company-action action-refund" onclick="openRefundDialog()"><span class="company-action-icon">↩</span><span>รับเงินคืนบริษัท<small>เงินที่คุณออกแทน</small></span></button>
+        <button class="company-action action-refund" onclick="openRefundDialog()"><span class="company-action-icon">↩</span><span>รับเงินบริษัท<small>คืนยอดออกแทน + กองกลาง</small></span></button>
         <button class="company-action action-allowance" onclick="openCompanyFunds('SELF_ALLOWANCE')"><span class="company-action-icon">◎</span><span>เบี้ยเลี้ยงตัวเอง<small>เปลี่ยนเป็นรายได้ของคุณ</small></span></button>
         <button class="company-action action-allowance" onclick="openCompanyFunds('OTHER_ALLOWANCE')"><span class="company-action-icon">◇</span><span>เบี้ยเลี้ยงคนอื่น<small>ระบุผู้รับเงิน</small></span></button>
         <button class="company-action action-move" onclick="openCompanyFunds('MOVE')"><span class="company-action-icon">⇄</span><span>ย้ายเงินเหลือ<small>ไปโปรเจกต์อื่น</small></span></button>
@@ -156,7 +157,8 @@
       <details><summary>เงินบริษัทล่วงหน้าและเบี้ยเลี้ยง</summary><div>
         <p>ในหน้า <strong>เงินบริษัท</strong> กด <strong>รับเงินบริษัทล่วงหน้า</strong> ระบุโปรเจกต์ วันที่ จำนวน และบัญชี เงินรับนี้ไม่เป็นรายได้ส่วนตัว</p>
         <p>เงินที่ลงรายรับไว้แล้ว ให้กด <strong>เปลี่ยนรายรับเดิมเป็นเงินล่วงหน้า</strong> เลือกรายการเดิมและโปรเจกต์ ยอดบัญชีไม่เพิ่มซ้ำ หากมีหลายรายการ ให้เปลี่ยนทีละรายการ</p>
-        <p>เมื่อจ่ายงาน ให้เพิ่ม <strong>รายจ่ายบริษัท</strong> และใส่ชื่อโปรเจกต์เดียวกัน ระบบใช้เงินล่วงหน้าที่รับถึงวันนั้นก่อน ส่วนเกินเป็นบริษัทค้างคืน รายการเก่าไม่ได้ผูกโปรเจกต์อัตโนมัติ ให้เปิดรายการแล้วแก้ช่องโปรเจกต์ตามจริง</p>
+        <p>เมื่อจ่ายงาน ให้เพิ่ม <strong>รายจ่ายบริษัท</strong> แล้วเลือกว่าจะใช้ <strong>กองกลางบริษัท / เงินล่วงหน้าโปรเจกต์ / ออกเงินส่วนตัวก่อน</strong> บัญชีที่จ่ายจริงเลือกแยกต่างหาก ถ้าเลือกโปรเจกต์ต้องระบุชื่อโปรเจกต์ หากเงินบริษัทไม่พอ ระบบแจ้งยอดขาดและให้ยืนยันก่อนออกเงินส่วนตัวส่วนที่เหลือ รายการเก่าคงวิธีคำนวณเดิมจนกว่าคุณจะแก้เอง</p>
+        <p><strong>รับเงินบริษัท</strong> กรอกยอดที่ได้รับจริง ระบบแยกคืนยอดที่ออกแทนและนำส่วนเกินเข้ากองกลาง พร้อมให้ยืนยันก่อนบันทึก เงินเข้าบัญชีเพียงครั้งเดียว เศษสตางค์คงเหลืออยู่ในกองกลางได้</p>
         <p><strong>เบี้ยเลี้ยงให้ตัวเอง</strong> ใช้เมื่อเงินบริษัทในบัญชีของคุณเปลี่ยนเป็นสิทธิ์ของคุณแล้ว ระบบลดเงินบริษัทและเพิ่มรายได้ส่วนตัวโดยไม่เปลี่ยนยอดบัญชี ต้องมีเงินล่วงหน้าเพียงพอ หากย้ายเงินเข้าบัญชีอื่น ให้บันทึกโอนเงินต่างหาก</p>
         <p><strong>เบี้ยเลี้ยงให้คนอื่น</strong> ใส่ชื่อผู้รับ หมวดเบี้ยเลี้ยง จำนวนและบัญชีที่จ่าย เงินออกจากบัญชีจริง อย่าบันทึกรายจ่ายเดียวกันซ้ำในฟอร์มทั่วไป</p>
         <p>โปรเจกต์จบแล้ว ใช้ <strong>ย้ายเงินเหลือไปโปรเจกต์อื่น</strong> หรือระบุปลายทางเป็น <strong>กองกลางบริษัท</strong> การย้ายนี้เปลี่ยนการจัดสรรเท่านั้น หากโอนเงินจริงระหว่างบัญชีให้บันทึกโอนเงินแยก หรือใช้ <strong>คืนเงินล่วงหน้าบริษัท</strong> เมื่อคืนเงินจริง</p>
@@ -196,7 +198,8 @@
     <div class="dialog-head"><h2 id="companyFundsTitle">เงินบริษัทล่วงหน้า</h2><button class="close" onclick="$('companyFundsDialog').close()">×</button></div>
     <p id="companyFundsHelp" class="hint"></p>
     <div id="companyExistingField" class="field hidden"><label>รายรับที่บันทึกไว้แล้ว</label><select id="companyExisting"></select></div>
-    <div class="field"><label>โปรเจกต์</label><input id="companyFundsProject" list="companyProjects" maxlength="80"><datalist id="companyProjects"></datalist></div>
+    <div class="field"><label for="companyFundsSource">กองเงินบริษัท</label><select id="companyFundsSource" onchange="syncCompanyFundsSource()"></select></div>
+    <div id="companyFundsProjectField" class="field"><label>โปรเจกต์</label><input id="companyFundsProject" list="companyProjects" maxlength="80"><datalist id="companyProjects"></datalist></div>
     <div id="companyTargetField" class="field hidden"><label>โปรเจกต์ปลายทาง / กองกลาง</label><input id="companyFundsTarget" list="companyProjects" maxlength="80"><label><input id="companyProjectFinished" type="checkbox"> โปรเจกต์ต้นทางจบแล้ว</label></div>
     <div id="companyNewFields">
       <div class="field"><label>วันที่</label><input id="companyFundsDate" type="date"></div>
@@ -225,9 +228,10 @@
       <div class="field hidden" id="toAccountField"><label>บัญชีปลายทาง</label><select id="toAccount" class="hidden"></select><button id="toAccountPickerButton" class="account-picker-button" type="button" onclick="openAccountPicker('toAccount')">เลือกบัญชีปลายทาง</button></div>
       <div class="field hidden" id="ownerField"><label>รายจ่ายนี้เป็นของใคร</label><select id="owner"><option value="PERSONAL">ส่วนตัว</option><option value="COMPANY">บริษัท</option></select></div>
       <div class="field" id="categoryField"><label id="categoryLabel">ประเภทรายจ่าย</label><div class="category-picker"><select id="category"></select><button class="secondary category-manage-button category-add-button" onclick="openCategoryDialog('entry')" aria-label="เพิ่มหรือจัดการหมวดหมู่" title="เพิ่มหรือจัดการหมวดหมู่">+</button></div></div>
+      <fieldset id="companyFundingField" class="company-funding-field hidden"><legend>เลือกเงินที่จะใช้จ่าย</legend><input id="companyFunding" type="hidden" value="PERSONAL"><label><input type="radio" name="companyFundingChoice" value="POOL" onchange="selectCompanyFunding('POOL')"> กองกลางบริษัท</label><label><input type="radio" name="companyFundingChoice" value="PROJECT" onchange="selectCompanyFunding('PROJECT')"> เงินล่วงหน้าโปรเจกต์</label><label><input type="radio" name="companyFundingChoice" value="PERSONAL" checked onchange="selectCompanyFunding('PERSONAL')"> ออกเงินส่วนตัวก่อน</label><p id="companyFundingHint"></p></fieldset>
       <div class="field company-project hidden" id="projectShortcutField"><label for="projectName">โปรเจกต์บริษัท (ถ้ามี)</label><input id="projectName" list="recentProjects" maxlength="80" placeholder="เช่น ติดตั้งเครื่อง คปภ."><datalist id="recentProjects"></datalist></div>
       <div class="field"><label>รายละเอียด</label><textarea id="description" rows="3" placeholder="เช่น เติมน้ำมันไปทำงาน"></textarea></div>
-      <div id="refundMatchField" class="field hidden"><label>จับคู่เงินคืนบริษัท</label><div id="refundBalanceHint" class="refund-balance-hint"></div><p class="refund-help">รายการที่ไม่มีโปรเจกต์รับคืนได้ตามปกติ กรอกยอดที่ได้รับจริง แล้วตรวจรายการด้านล่าง</p><button id="refundPreviewButton" type="button" class="secondary mini" onclick="previewRefund()">ตรวจและจับคู่เก่าสุดก่อน</button><p id="refundFeedback" class="refund-feedback" role="status" aria-live="polite"></p><div id="refundMatches"></div></div>
+      <div id="refundMatchField" class="field hidden"><label>รับเงินบริษัท: คืนยอดออกแทน + กองกลาง</label><div id="refundBalanceHint" class="refund-balance-hint"></div><p class="refund-help">กรอกยอดที่รับจริง ระบบคืนยอดที่คุณออกแทนก่อน ส่วนเกินเก็บเข้ากองกลาง เงินเข้าบัญชีเพียงครั้งเดียว</p><button id="refundPreviewButton" type="button" class="secondary mini" onclick="previewRefund()">ตรวจยอดคืนและส่วนเข้ากองกลาง</button><p id="refundFeedback" class="refund-feedback" role="status" aria-live="polite"></p><div id="refundMatches"></div></div>
       <div id="draftField" class="hidden"><input id="draft" type="checkbox"></div>
       <div class="actions"><button class="secondary" onclick="cancelDialog('entryDialog')">ยกเลิก</button><button id="saveButton" class="primary" onclick="saveCurrentTransaction()">บันทึก</button></div>
     </div>
