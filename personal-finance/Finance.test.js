@@ -530,32 +530,42 @@ function testFreshOnlyStartup() {
 function testCompanyProjectField() {
   const source=fs.readFileSync('JavaScript.html','utf8');
   const body=source.slice(source.indexOf('<script>')+8,source.indexOf("document.addEventListener('click'"));
-  const storage=new Map(),elements={};
+  const elements={};
   const element=id=>elements[id] ||= {value:'',checked:false,innerHTML:'',classList:{toggle(){},add(){},remove(){}}};
-  const ui=vm.createContext({console,window:{localStorage:{
-    getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)
-  }},document:{getElementById:element},setTimeout,clearTimeout});
+  const ui=vm.createContext({console,window:{},document:{getElementById:element},setTimeout,clearTimeout});
   vm.runInContext(body,ui);
-  vm.runInContext("BOOT={categories:[{category_id:'CAT010',category_name:'น้ำมัน',transaction_type:'EXPENSE'}]}",ui);
-  assert.equal(ui.recentProjects().length,0);
+  vm.runInContext("BOOT={categories:[{category_id:'CAT010',category_name:'น้ำมัน',transaction_type:'EXPENSE'}],company:{project_catalog:[{project_name:'ติดตั้งเครื่อง คปภ.',status:'ACTIVE'},{project_name:'งานที่จบแล้ว',status:'CLOSED'}]}}",ui);
+  ui.fillProjectSelects();
+  ['projectName','companyFundsProject','companyFundsTarget'].forEach(id=>{
+    assert.match(element(id).innerHTML,/ติดตั้งเครื่อง คปภ\./);assert.doesNotMatch(element(id).innerHTML,/งานที่จบแล้ว/);
+  });
+  assert.match(element('companyFundsTarget').innerHTML,/กองกลางบริษัท/);
+  assert.doesNotMatch(element('companyFundsProject').innerHTML,/กองกลางบริษัท/);
   element('owner').value='COMPANY';
   element('projectName').value='ติดตั้งเครื่อง คปภ.';
   element('category').value='CAT010';
   element('description').value='เติมน้ำมันรถ';
   assert.equal(element('owner').value,'COMPANY');
   assert.equal(ui.formTransaction().description,'ติดตั้งเครื่อง คปภ. | เติมน้ำมันรถ');
-  ui.rememberProject(element('projectName').value);
-  ui.fillRecentProjects();
-  assert.equal(element('projectName').value,'');
-  assert.match(element('recentProjects').innerHTML,/ติดตั้งเครื่อง คปภ\./);
+  ui.fillProjectSelects();
+  assert.equal(element('projectName').value,'ติดตั้งเครื่อง คปภ.');
   element('projectName').value='ติดตั้งเครื่อง คปภ.';
   element('description').value='เติมแก๊ส';
   assert.equal(ui.formTransaction().description,'ติดตั้งเครื่อง คปภ. | เติมแก๊ส');
+  vm.runInContext("selectedTx={status:'ACTIVE',project_name:'งานที่จบแล้ว'}",ui);
+  element('projectName').value='งานที่จบแล้ว';ui.fillProjectSelects();
+  assert.match(element('projectName').innerHTML,/ปิดแล้ว · รายการเดิม/);
+  assert.equal(element('projectName').value,'งานที่จบแล้ว');
+  assert.doesNotMatch(element('companyFundsProject').innerHTML,/งานที่จบแล้ว/);
+  vm.runInContext("selectedTx=null",ui);ui.fillProjectSelects();
+  assert.equal(element('projectName').value,'');
   vm.runInContext("selectedTx={transaction_id:'TX-EDIT'}",ui);
   element('description').value='ติดตั้งเครื่อง คปภ. | เติมแก๊ส';
   assert.equal(ui.formTransaction().description,'ติดตั้งเครื่อง คปภ. | เติมแก๊ส');
   const html=fs.readFileSync('Index.html','utf8');
   assert.doesNotMatch(html,/applyProjectShortcut|project-shortcuts/);
+  assert.match(html,/<select id="projectName"/);
+  assert.doesNotMatch(html,/datalist id="recentProjects"|datalist id="companyProjects"/);
   console.log('PASS Company project stays optional and category selection remains independent');
 }
 function testEntryAndTransactionViews() {
@@ -879,6 +889,66 @@ test('Selected company receipts leave unchecked claims open and support partial 
   }
 });
 
+test('Shared project catalog closes projects and moves only their remaining funds to the pool',()=>{
+  const snapshot=Object.fromEntries(Object.entries(sheets).map(([name,s])=>[name,s.data.map(r=>r.slice())])),previousToday=context.today_;
+  try {
+    context.today_=()=> '2026-10-16';
+    Object.values(sheets).forEach(s=>{s.data=s.data.slice(0,2);});
+    seed('บัญชี',{account_id:'ACC002',user_id:'USR001',account_name:'บัญชีทดสอบ',opening_balance:0,is_active:true});
+    seed('หมวดหมู่',{category_id:'EXP',category_name:'อุปกรณ์',transaction_type:'EXPENSE',is_active:true});
+    seed('หมวดหมู่',{category_id:'REF',category_name:'เงินคืนบริษัท',transaction_type:'INCOME',is_active:true});
+    const funds={...base,transaction_date:'2026-10-01',transaction_type:'INCOME',company_kind:'ADVANCE',company_funding:'PROJECT',project_name:'งานเดิม',amount:1000};
+    const advance=call('saveTransaction',funds);
+    const cost=call('saveTransaction',{...base,transaction_date:'2026-10-02',transaction_type:'EXPENSE',expense_owner:'COMPANY',category_id:'EXP',company_funding:'PROJECT',project_name:'งานเดิม',amount:300.25});
+    call('saveTransaction',{...base,transaction_date:'2026-10-03',transaction_type:'EXPENSE',expense_owner:'COMPANY',category_id:'EXP',company_funding:'PERSONAL',project_name:'งานเดิม',amount:50});
+    const draft=call('saveTransaction',{...funds,amount:5,status:'DRAFT'});
+    const txRows=sheets['รายการเงิน'].getLastRow(),before=call('getDashboard');
+    const bootstrap=call('getBootstrap');
+    assert.equal(bootstrap.company.project_catalog.find(p=>p.project_name==='งานเดิม').remaining,699.75);
+    assert.equal(sheets['โปรเจกต์บริษัท'],undefined);assert.equal(sheets['รายการเงิน'].getLastRow(),txRows);
+    const added=call('createCompanyProject','  งานใหม่   ทดสอบ  ');
+    assert.equal(added.project_name,'งานใหม่ ทดสอบ');assert.equal(sheets['รายการเงิน'].getLastRow(),txRows);
+    assert.throws(()=>call('createCompanyProject','งานใหม่ ทดสอบ'),/มีโปรเจกต์/);
+    assert.throws(()=>call('createCompanyProject','กองกลางบริษัท'));
+    assert.throws(()=>call('createCompanyProject','a'.repeat(81)));
+    assert.throws(()=>call('createCompanyProject','bad\nname'));
+    const preview=call('getCompanyProjectClosePreview','งานเดิม');assert.equal(preview.remaining,699.75);
+    const beforeStale=JSON.stringify(Object.fromEntries(Object.entries(sheets).map(([k,v])=>[k,v.data])));
+    assert.throws(()=>call('closeCompanyProject','งานเดิม',700),/เปลี่ยนแล้ว/);
+    assert.equal(JSON.stringify(Object.fromEntries(Object.entries(sheets).map(([k,v])=>[k,v.data]))),beforeStale);
+    const closed=call('closeCompanyProject','งานเดิม',699.75);
+    assert.equal(closed.moved_amount,699.75);assert.equal(closed.company.pool.remaining,699.75);assert.equal(closed.company.pool.received,699.75);
+    assert.equal(closed.company.projects.find(p=>p.project_name==='งานเดิม').remaining,0);
+    assert.equal(closed.company.projects.find(p=>p.project_name==='งานเดิม').moved_out,699.75);
+    assert.equal(closed.company.project_catalog.find(p=>p.project_name==='งานเดิม').status,'CLOSED');
+    assert.equal(closed.company.remaining,50);
+    ['real_cash','available_cash','income','personal_expense','cash_inflow','cash_outflow'].forEach(key=>assert.equal(closed.dashboard[key],before[key]));
+    const record=call('rows_','โปรเจกต์บริษัท').find(p=>p.project_name==='งานเดิม'),move=call('getTransaction',record.close_transaction_id);
+    assert.equal(move.company_kind,'MOVE');assert.equal(move.to_project,'กองกลางบริษัท');assert.equal(move.amount,699.75);
+    assert.equal(sheets['รายการเงิน'].getLastRow(),txRows+1);
+    const again=call('closeCompanyProject','งานเดิม',699.75);assert.equal(again.already_closed,true);
+    assert.equal(sheets['รายการเงิน'].getLastRow(),txRows+1);
+    assert.throws(()=>call('saveTransaction',funds),/ปิดแล้ว/);
+    assert.throws(()=>call('confirmDraft',draft.id,{}),/ปิดแล้ว/);
+    assert.throws(()=>call('saveTransaction',{...funds,company_kind:'MOVE',company_funding:'POOL',project_name:'',to_project:'งานเดิม',amount:1}),/ปิดแล้ว/);
+    assert.throws(()=>call('updateTransaction',advance.id,{amount:1001}),/ปิดแล้วมีเงินเหลือ/);
+    assert.throws(()=>call('voidTransaction',cost.id,'ทดสอบ'),/ปิดแล้วมีเงินเหลือ/);
+    assert.throws(()=>call('voidTransaction',move.transaction_id,'ทดสอบ'),/ปิดแล้วมีเงินเหลือ/);
+    call('updateTransaction',cost.id,{description:'แก้ข้อความย้อนหลัง'});
+    assert.equal(call('getTransaction',cost.id).description,'แก้ข้อความย้อนหลัง');
+    assert.throws(()=>call('createCompanyProject','งานเดิม'),/มีโปรเจกต์/);
+    const beforeZero=sheets['รายการเงิน'].getLastRow();call('closeCompanyProject','งานใหม่ ทดสอบ',0);
+    assert.equal(sheets['รายการเงิน'].getLastRow(),beforeZero);
+    call('saveTransaction',{...funds,project_name:'งานอนาคต',transaction_date:'2026-10-17'});
+    assert.throws(()=>call('getCompanyProjectClosePreview','งานอนาคต'),/ในอนาคต/);
+    assert.throws(()=>call('closeCompanyProject','งานอนาคต',1000),/ในอนาคต/);
+    assert.equal(call('getCompanySummary').pool.remaining,699.75);
+  } finally {
+    context.today_=previousToday;
+    Object.keys(sheets).forEach(name=>{if(snapshot[name]) sheets[name].data=snapshot[name];else delete sheets[name];});
+  }
+});
+
 test('Dialog scroll lock retains background position through nested dialogs',()=>{
   const source=fs.readFileSync('JavaScript.html','utf8');
   const start=source.indexOf('function installDialogScrollLock()');
@@ -977,7 +1047,32 @@ async function testCompanyConsentUI() {
   console.log('PASS Surplus and personal shortfall confirmation can be cancelled without writing');
 }
 
-testFrontendSaveNavigation().then(testRefundFormRecovery).then(testCompanyConsentUI).then(()=>{
+async function testProjectManagerUI() {
+  const source=fs.readFileSync('JavaScript.html','utf8');
+  const body=source.slice(source.indexOf('<script>')+8,source.indexOf("document.addEventListener('click'"));
+  const elements={},element=id=>elements[id] ||= {value:'',disabled:false,innerHTML:'',classList:{toggle(){},add(){},remove(){}},showModal(){this.open=true;},close(){this.open=false;}};
+  const ui=vm.createContext({console,window:{},document:{getElementById:element},setTimeout,clearTimeout});
+  vm.runInContext(body,ui);vm.runInContext("dataReady=true;BOOT={company:{project_catalog:[{project_name:'งานเดิม',status:'ACTIVE',remaining:25.75}]}}",ui);
+  let writes=0,confirm=false;
+  ui.notify=()=>{};ui.fail=error=>{throw error;};
+  ui.renderMutation=result=>{ui.projectResult=result;};
+  ui.sweet=async options=>{assert.match(options.text,/25\.75.*กองกลาง/);return {isConfirmed:confirm};};
+  ui.server=async(name,...args)=>{
+    if(name==='getCompanyProjectClosePreview') return {remaining:25.75,status:'ACTIVE'};
+    if(name==='closeCompanyProject') {assert.equal(args[0],'งานเดิม');assert.equal(args[1],25.75);writes++;return {moved_amount:25.75};}
+    if(name==='createCompanyProject') {assert.equal(args[0],'งานใหม่');writes++;return {project_name:'งานใหม่'};}
+    throw new Error('Unexpected call '+name);
+  };
+  ui.openProjectManager('projectName');assert.equal(element('projectManagerDialog').open,true);
+  await ui.closeSelectedCompanyProject('งานเดิม');assert.equal(writes,0);
+  confirm=true;await ui.closeSelectedCompanyProject('งานเดิม');assert.equal(writes,1);
+  element('newCompanyProjectName').value=' งานใหม่ ';await ui.submitCompanyProject();
+  assert.equal(writes,2);assert.equal(element('projectName').value,'งานใหม่');assert.equal(element('projectManagerDialog').open,false);
+  assert.equal(element('projectAddButton').disabled,false);
+  console.log('PASS Project manager cancellation writes nothing and addition selects the new shared project');
+}
+
+testFrontendSaveNavigation().then(testRefundFormRecovery).then(testCompanyConsentUI).then(testProjectManagerUI).then(()=>{
   testMutationSnapshotRendering();
   testFreshOnlyStartup();
   testCompanyProjectField();

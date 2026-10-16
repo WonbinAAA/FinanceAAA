@@ -17,7 +17,6 @@ let transactionRequest = 0;
 let dataReady = false;
 let activeAccountPicker = 'account';
 let showAllAccounts = false;
-const RECENT_PROJECTS_KEY = 'personal-finance-recent-projects-v1';
 const M = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const MONTH_FULL = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
@@ -118,24 +117,62 @@ function categoryFits(item, type, owner = 'PERSONAL') {
 function categories(type, owner = 'PERSONAL') {
   return (BOOT?.categories || []).filter(item => categoryFits(item, type, owner));
 }
-function recentProjects() {
-  try {
-    const values = JSON.parse(window.localStorage.getItem(RECENT_PROJECTS_KEY) || '[]');
-    return Array.isArray(values) ? values.filter(value => typeof value === 'string' && value.trim()).slice(0, 8) : [];
-  } catch (_) { return []; }
+let projectManagerSource = '';
+let projectBusy = false;
+function projectCatalog() { return BOOT?.company?.project_catalog || []; }
+function fillProjectSelects() {
+  const active=projectCatalog().filter(p=>p.status!=='CLOSED');
+  ['projectName','companyFundsProject','companyFundsTarget'].forEach(id=>{
+    const el=$(id),current=el.value,hasPool=id==='companyFundsTarget';
+    const historical=id==='projectName'&&selectedTx?.status==='ACTIVE'?selectedTx.project_name:'';
+    const archived=historical&&!active.some(p=>p.project_name===historical);
+    el.innerHTML=option('',hasPool?'เลือกปลายทาง':id==='projectName'?'ไม่ระบุโปรเจกต์':'เลือกโปรเจกต์')+
+      (hasPool?option('กองกลางบริษัท','กองกลางบริษัท'):'')+active.map(p=>option(p.project_name,p.project_name)).join('')+
+      (archived?option(historical,historical+' (ปิดแล้ว · รายการเดิม)'):'');
+    el.value=active.some(p=>p.project_name===current)||hasPool&&current==='กองกลางบริษัท'||archived&&current===historical?current:'';
+  });
 }
-function fillRecentProjects() {
-  const projects = recentProjects();
-  $('recentProjects').innerHTML = projects.map(value => option(value, value)).join('');
-  $('projectName').value = '';
+function renderProjectManager() {
+  const items=projectCatalog(),active=items.filter(p=>p.status!=='CLOSED'),closed=items.filter(p=>p.status==='CLOSED');
+  $('projectManagerList').innerHTML=active.map(p=>`<div class="project-manager-row"><div><b>${esc(p.project_name)}</b><small>เงินเหลือ ${money(p.remaining)}</small></div><button class="secondary" data-close-project="${esc(p.project_name)}" ${projectBusy?'disabled':''}>ปิดโปรเจกต์</button></div>`).join('')||'<div class="empty">ยังไม่มีโปรเจกต์ที่ใช้งานอยู่</div>';
+  $('projectManagerHistory').innerHTML=closed.length?`<details><summary>โปรเจกต์ที่ปิดแล้ว (${closed.length})</summary>${closed.map(p=>`<div class="project-manager-row is-closed"><div><b>${esc(p.project_name)}</b><small>ปิดแล้ว · เก็บประวัติรายการเดิมไว้</small></div></div>`).join('')}</details>`:'';
+  $('projectAddButton').disabled=projectBusy;
 }
-function rememberProject(value) {
-  const name = String(value || '').trim().replace(/\s+/g, ' ').slice(0, 80);
-  if (!name) return;
+function openProjectManager(source='') {
+  if(!requireFreshData()) return;
+  projectManagerSource=source;
+  $('newCompanyProjectName').value='';
+  renderProjectManager();$('projectManagerDialog').showModal();
+}
+async function submitCompanyProject() {
+  if(projectBusy) return;
+  const name=$('newCompanyProjectName').value.trim();
+  if(!name) return notify('warning','กรุณากรอกชื่อโปรเจกต์');
+  projectBusy=true;renderProjectManager();
   try {
-    const projects = [name, ...recentProjects().filter(item => item !== name)].slice(0, 8);
-    window.localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(projects));
-  } catch (_) { /* บางเบราว์เซอร์ไม่อนุญาตให้เก็บข้อมูลในเครื่อง */ }
+    const result=await server('createCompanyProject',name);
+    renderMutation(result);
+    if(projectManagerSource) $(projectManagerSource).value=result.project_name;
+    $('newCompanyProjectName').value='';
+    if(projectManagerSource) $('projectManagerDialog').close();
+    notify('success','เพิ่มโปรเจกต์แล้ว','ใช้รายชื่อเดียวกันทุกฟอร์ม');
+  } catch(error) { fail(error); }
+  finally {projectBusy=false;renderProjectManager();}
+}
+async function closeSelectedCompanyProject(name) {
+  if(projectBusy) return;
+  projectBusy=true;renderProjectManager();
+  try {
+    const preview=await server('getCompanyProjectClosePreview',name);
+    const answer=await sweet({icon:'question',title:'ปิดโปรเจกต์ '+name+'?',
+      text:(preview.remaining>0?'เงินเหลือ '+money(preview.remaining)+' จะย้ายเข้ากองกลางบริษัท':'โปรเจกต์นี้ไม่มีเงินเหลือให้ย้าย')+' แล้วนำออกจากตัวเลือกทุกฟอร์ม ประวัติเดิมและยอดค้างคืนยังอยู่ ยอดเงินในบัญชีไม่เปลี่ยน',
+      showCancelButton:true,confirmButtonText:preview.remaining>0?'ย้ายเงินและปิดโปรเจกต์':'ปิดโปรเจกต์',cancelButtonText:'กลับ'});
+    if(!answer.isConfirmed) return;
+    const result=await server('closeCompanyProject',name,preview.remaining);
+    renderMutation(result);
+    notify('success','ปิดโปรเจกต์แล้ว',result.moved_amount>0?'ย้ายเข้ากองกลาง '+money(result.moved_amount):'เก็บประวัติรายการเดิมไว้แล้ว');
+  } catch(error) { fail(error); }
+  finally {projectBusy=false;renderProjectManager();}
 }
 function fillCategories(type) {
   const selected = $('category').value;
@@ -332,7 +369,8 @@ function resetForm() {
   $('txDate').value = BOOT?.today || '';
   $('amount').value = '';
   $('description').value = '';
-  fillRecentProjects();
+  fillProjectSelects();
+  $('projectName').value='';
   $('owner').value = 'PERSONAL';
   $('companyFunding').value='PERSONAL';
   $('toAccount').value = '';
@@ -463,7 +501,6 @@ async function saveCurrentTransaction() {
     if (selectedTx?.status === 'DRAFT') result = await server('confirmDraft', selectedTx.transaction_id, input);
     else if (selectedTx) result = await server('updateTransaction', selectedTx.transaction_id, input);
     else result = await server('saveTransaction', input);
-    if (!selectedTx && selectedType === 'EXPENSE' && $('owner').value === 'COMPANY') rememberProject($('projectName').value);
     renderMutation(result);
     closeEntryDialog();
     showPage('Dashboard');
@@ -611,11 +648,14 @@ function renderLatest(items) {
   $('latestList').innerHTML = items.length ? items.map(transactionRow).join('') : '<div class="empty">ยังไม่มีรายการ</div>';
 }
 function renderCompany(data) {
+  fillProjectSelects();
+  renderProjectManager();
   $('companyPoolRemaining').textContent=money(data.pool?.remaining||0);
   $('companyPoolReceived').textContent=money(data.pool?.received||0);
   $('companyPoolSpent').textContent=money(data.pool?.spent||0);
   $('companyAdvanceTotal').textContent = money(data.advance_remaining || 0);
-  $('companyProjectList').innerHTML = (data.projects || []).map(p=>`<article class="company-project-card"><div class="company-project-title"><span class="company-project-symbol" aria-hidden="true">▦</span><h4>${esc(p.project_name)}</h4><span class="company-project-state">${Number(p.remaining)>0?'มีเงินเหลือ':'ใช้ครบแล้ว'}</span></div><div class="company-project-remaining"><span>เงินเหลือในโปรเจกต์</span><b>${money(p.remaining)}</b></div><div class="company-project-breakdown"><div class="project-received"><span>รับล่วงหน้า</span><b>${money(p.received)}</b></div><div class="project-spent"><span>ใช้จ่ายแล้ว</span><b>${money(p.spent)}</b></div></div></article>`).join('') || '<div class="card empty">ยังไม่มีเงินล่วงหน้าแยกตามโปรเจกต์<br>เริ่มจาก “รับเงินล่วงหน้า” ด้านล่าง</div>';
+  const closedProjects=new Set(projectCatalog().filter(p=>p.status==='CLOSED').map(p=>p.project_name));
+  $('companyProjectList').innerHTML = (data.projects || []).map(p=>`<article class="company-project-card ${closedProjects.has(p.project_name)?'is-closed':''}"><div class="company-project-title"><span class="company-project-symbol" aria-hidden="true">▦</span><h4>${esc(p.project_name)}</h4><span class="company-project-state">${closedProjects.has(p.project_name)?'ปิดแล้ว':Number(p.remaining)>0?'มีเงินเหลือ':'ใช้ครบแล้ว'}</span></div><div class="company-project-remaining"><span>เงินเหลือในโปรเจกต์</span><b>${money(p.remaining)}</b></div><div class="company-project-breakdown"><div class="project-received"><span>รับล่วงหน้า</span><b>${money(p.received)}</b></div><div class="project-spent"><span>ใช้จ่ายแล้ว</span><b>${money(p.spent)}</b></div></div>${p.moved_out?`<p class="project-moved-note">ย้ายเงินออกแล้ว ${money(p.moved_out)}</p>`:''}</article>`).join('') || '<div class="card empty">ยังไม่มีเงินล่วงหน้าแยกตามโปรเจกต์<br>เริ่มจาก “รับเงินล่วงหน้า” ด้านล่าง</div>';
   $('claimTotal').textContent = money(data.total);
   $('claimReturned').textContent = money(data.returned);
   $('claimRemaining').textContent = money(data.remaining);
@@ -745,6 +785,7 @@ function editCurrentTransaction() {
   $('detailDialog').close();
   resetForm();
   selectedTx = item;
+  fillProjectSelects();
   $('entryDialogTitle').textContent = item.status === 'DRAFT' ? 'ตรวจและยืนยันฉบับร่าง' : 'แก้ไขรายการ';
   selectType(item.transaction_type, item.expense_owner);
   $('txDate').value = String(item.transaction_date).slice(0, 10);
@@ -807,7 +848,7 @@ async function openCompanyFunds(mode) {
   $('companyProjectFinished').checked = false;
   $('companyFundsDate').value = BOOT.today;
   $('companyFundsAccount').innerHTML = accountOptions(false);
-  $('companyProjects').innerHTML = option('กองกลางบริษัท','กองกลางบริษัท')+(BOOT.company.projects || []).map(p=>option(p.project_name,p.project_name)).join('');
+  fillProjectSelects();
   const allowanceCategories = categories('EXPENSE','COMPANY');
   $('companyAllowanceCategory').innerHTML = '<option value="">เลือกหมวดเบี้ยเลี้ยงบริษัท</option>' + allowanceCategories.map(c=>option(c.category_id,c.category_name)).join('');
   const allowanceCategory = allowanceCategories.find(c=>c.category_name==='เบี้ยเลี้ยง');
@@ -1056,6 +1097,8 @@ function installDialogScrollLock() {
 }
 
 document.addEventListener('click', event => {
+  const projectClose=event.target.closest('[data-close-project]');
+  if(projectClose) closeSelectedCompanyProject(projectClose.dataset.closeProject);
   const pickedAccount=event.target.closest('[data-pick-account]');
   if(pickedAccount) chooseAccount(pickedAccount.dataset.pickAccount);
   const accountToggle=event.target.closest('[data-account-toggle]');
@@ -1077,7 +1120,7 @@ document.addEventListener('click', event => {
   const recurringStop = event.target.closest('[data-recurring-stop]');
   if (recurringStop) stopRecurring(recurringStop.dataset.recurringStop);
 });
-['entryDialog', 'categoryDialog', 'debtDialog', 'recurringDialog','accountPickerDialog','accountSettingsDialog'].forEach(id => $(id).addEventListener('cancel', event => {
+['entryDialog', 'categoryDialog', 'debtDialog', 'recurringDialog','accountPickerDialog','accountSettingsDialog','projectManagerDialog'].forEach(id => $(id).addEventListener('cancel', event => {
   event.preventDefault();
   cancelDialog(id);
 }));

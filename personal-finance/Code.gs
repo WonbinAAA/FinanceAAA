@@ -6,7 +6,7 @@ const DATA_ROW = 3;
 const SH = {
   USERS:"ผู้ใช้งาน", ACCOUNTS:"บัญชี", TX:"รายการเงิน", CAT:"หมวดหมู่",
   DEBTS:"หนี้สิน", DEBT_TX:"รายการหนี้", DEBT_PLAN:"แผนชำระหนี้", CLAIMS:"เงินสำรองบริษัท",
-  RECUR:"รายการประจำ", SETTINGS:"ตั้งค่าระบบ", AUDIT:"ประวัติการแก้ไข", MATCH:"จับคู่เงินคืนบริษัท"
+  RECUR:"รายการประจำ", SETTINGS:"ตั้งค่าระบบ", AUDIT:"ประวัติการแก้ไข", MATCH:"จับคู่เงินคืนบริษัท", PROJECTS:"โปรเจกต์บริษัท"
 };
 
 let spreadsheetCache_=null;
@@ -109,7 +109,7 @@ function doGet() {
 function getConnectionStatus() {
   try {
     const book=ss_(), names=new Set(book.getSheets().map(sheet=>sheet.getName()));
-    Object.keys(SH).filter(k=>k!=="MATCH"&&k!=="DEBT_PLAN").forEach(k=>{if(!names.has(SH[k])) throw new Error("ไม่พบ Sheet: "+SH[k]);});
+    Object.keys(SH).filter(k=>!["MATCH","DEBT_PLAN","PROJECTS"].includes(k)).forEach(k=>{if(!names.has(SH[k])) throw new Error("ไม่พบ Sheet: "+SH[k]);});
     return {ok:true,spreadsheet_name:book.getName(),spreadsheet_id:book.getId(),time_zone:TZ};
   } catch(e) { return {ok:false,message:"เปิดฐานข้อมูลไม่ได้: "+e.message+" กรุณาตรวจสิทธิ์บัญชีที่ Deploy Web App และ Spreadsheet ID"}; }
 }
@@ -258,7 +258,7 @@ function setCategoryActive(id,enabled) { return withLock_(()=>{
   }
   return {ok:true,id:item.category_id,categories:getCategories()};
 }); }
-function validateTx_(input,allowedInactiveCategoryId,allowedLegacyCategoryId) {
+function validateTx_(input,allowedInactiveCategoryId,allowedLegacyCategoryId,historicalTx) {
   const companyKind=String(input.company_kind||"");
   if(companyKind&&!['ADVANCE','RETURN','MOVE','SELF_ALLOWANCE','OTHER_ALLOWANCE','MIXED_RECEIPT'].includes(companyKind)) throw new Error('ประเภทเงินบริษัทไม่ถูกต้อง');
   const funding=String(input.company_funding||'');
@@ -271,7 +271,7 @@ function validateTx_(input,allowedInactiveCategoryId,allowedLegacyCategoryId) {
   const type=String(input.transaction_type||"").toUpperCase(), amount=positive_(input.amount);
   if(!["INCOME","EXPENSE","TRANSFER"].includes(type)) throw new Error("ประเภทรายการไม่ถูกต้อง");
   const accounts=rows_(SH.ACCOUNTS).filter(a=>active_(a.is_active));
-  if(!accounts.some(a=>a.account_id===input.account_id)) throw new Error("บัญชีไม่ถูกต้อง");
+  if(!(companyKind==='MOVE'&&!input.account_id)&&!accounts.some(a=>a.account_id===input.account_id)) throw new Error("บัญชีไม่ถูกต้อง");
   if(type==="TRANSFER"&&(!accounts.some(a=>a.account_id===input.to_account_id)||input.to_account_id===input.account_id)) throw new Error("บัญชีปลายทางไม่ถูกต้อง");
   if(type==="EXPENSE"&&!["PERSONAL","COMPANY"].includes(input.expense_owner)) throw new Error("กรุณาเลือก ส่วนตัว/บริษัท");
   if(type!=="TRANSFER"&&!['ADVANCE','RETURN','MOVE'].includes(companyKind)) {
@@ -288,6 +288,7 @@ function validateTx_(input,allowedInactiveCategoryId,allowedLegacyCategoryId) {
   if(!["WEB","LINE","IMPORT"].includes(source)) throw new Error("แหล่งที่มาของรายการไม่ถูกต้อง");
   if(['ADVANCE','MOVE'].includes(companyKind)&&type!=='INCOME'||['RETURN','SELF_ALLOWANCE','OTHER_ALLOWANCE'].includes(companyKind)&&(type!=='EXPENSE'||input.expense_owner!=='COMPANY')) throw new Error('ประเภทเงินบริษัทไม่ตรงกับรายการ');
   const target=String(input.to_project||'').trim().replace(/\s+/g,' ');
+  assertCompanyProjectsOpen_(project,companyKind==='MOVE'?target:'',historicalTx);
   if(companyKind==='MOVE'&&(!target||target===project||target.length>80)) throw new Error('กรุณาเลือกโปรเจกต์ปลายทางที่ต่างกัน');
   if(companyKind==='MOVE'&&funding==='POOL'&&target===COMPANY_POOL) throw new Error('กองเงินต้นทางและปลายทางต้องต่างกัน');
   if(companyKind==='MOVE'&&funding!=='POOL'&&input.project_finished!==true) throw new Error('กรุณายืนยันว่าโปรเจกต์ต้นทางจบแล้ว');
@@ -332,6 +333,81 @@ function prepareCompanyTx_(tx) {
   ['project_name','company_kind','to_project','recipient','company_funding','company_funded_amount','company_pool_amount'].forEach(key=>ensureColumn_(SH.TX,key,key));
 }
 const COMPANY_POOL = 'กองกลางบริษัท';
+function companyProjectName_(value) {
+  const name=String(value||'').trim().replace(/\s+/g,' ');
+  if(!name||name.length>80||/[\x00-\x1f\x7f]/.test(String(value))||name===COMPANY_POOL) throw new Error('กรุณาระบุชื่อโปรเจกต์ 1–80 ตัวอักษร และไม่ใช้ชื่อกองกลางบริษัท');
+  return name;
+}
+function companyProjectSheet_(create) {
+  let s=ss_().getSheetByName(SH.PROJECTS);
+  if(!s&&create) {
+    s=ss_().insertSheet(SH.PROJECTS);
+    s.getRange(1,1,1,6).setValues([['project_id','project_name','status','created_at','closed_at','close_transaction_id']]);
+    s.getRange(2,1,1,6).setValues([['รหัสโปรเจกต์','ชื่อโปรเจกต์','สถานะ','สร้างเมื่อ','ปิดเมื่อ','รายการย้ายเข้ากองกลาง']]);
+    s.setFrozenRows(2);
+  }
+  return s;
+}
+function companyProjectRecords_() { return companyProjectSheet_(false)?rows_(SH.PROJECTS):[]; }
+function companyProjectCatalog_(ledger) {
+  const entries=new Map();
+  rows_(SH.TX).forEach(t=>{
+    [t.project_name,t.company_kind==='MOVE'?t.to_project:''].forEach(value=>{
+      const name=String(value||'').trim();
+      if(name&&name!==COMPANY_POOL&&!entries.has(name)) entries.set(name,{project_name:name,status:'ACTIVE'});
+    });
+  });
+  companyProjectRecords_().forEach(p=>entries.set(p.project_name,{project_id:p.project_id,project_name:p.project_name,status:p.status,closed_at:p.closed_at}));
+  const balances=new Map((ledger||companyLedger_()).projects.map(p=>[p.project_name,p.remaining]));
+  return [...entries.values()].map(p=>Object.assign({},p,{remaining:balances.get(p.project_name)||0}))
+    .sort((a,b)=>(a.status==='CLOSED')-(b.status==='CLOSED')||a.project_name.localeCompare(b.project_name));
+}
+function assertCompanyProjectsOpen_(project,target,historicalTx) {
+  const closed=new Set(companyProjectRecords_().filter(p=>p.status==='CLOSED').map(p=>p.project_name));
+  if(project&&closed.has(project)&&project!==historicalTx?.project_name||target&&closed.has(target)&&target!==historicalTx?.to_project)
+    throw new Error('โปรเจกต์นี้ปิดแล้ว กรุณาเลือกโปรเจกต์ที่ยังใช้งานอยู่');
+}
+function createCompanyProject(value) { return withLock_(()=>{
+  const name=companyProjectName_(value),catalog=companyProjectCatalog_();
+  if(catalog.some(p=>p.project_name.toLocaleLowerCase()===name.toLocaleLowerCase())) throw new Error('มีโปรเจกต์ชื่อนี้อยู่แล้ว รวมถึงรายการที่ปิดไปแล้ว');
+  companyProjectSheet_(true);
+  const project={project_id:id_('PRJ'),project_name:name,status:'ACTIVE',created_at:now_(),closed_at:'',close_transaction_id:''};
+  appendObj_(SH.PROJECTS,project);
+  audit_('COMPANY_PROJECT',project.project_id,'CREATE','','',JSON.stringify(project),'เพิ่มโปรเจกต์');
+  return {ok:true,project_name:name,company:getCompanySummary()};
+}); }
+function companyProjectClosePreview_(value) {
+  const name=companyProjectName_(value),project=companyProjectCatalog_().find(p=>p.project_name===name);
+  if(!project) throw new Error('ไม่พบโปรเจกต์');
+  if(project.status!=='CLOSED'&&rows_(SH.TX).some(t=>t.status==='ACTIVE'&&String(t.transaction_date)>today_()&&
+    (t.project_name===name||t.company_kind==='MOVE'&&t.to_project===name))) throw new Error('โปรเจกต์นี้มีรายการลงวันที่ในอนาคต กรุณาตรวจวันที่ก่อนปิดโปรเจกต์');
+  return {project_name:name,status:project.status,remaining:project.remaining};
+}
+function getCompanyProjectClosePreview(name) { return withReadCache_(()=>companyProjectClosePreview_(name)); }
+function closeCompanyProject(value,expectedRemaining) { return withLock_(()=>{
+  const preview=companyProjectClosePreview_(value),name=preview.project_name;
+  if(preview.status==='CLOSED') return transactionMutationResult_({already_closed:true,moved_amount:0});
+  if(expectedRemaining==null||!isFinite(Number(expectedRemaining))||Number(expectedRemaining)<0||cents_(expectedRemaining)!==cents_(preview.remaining))
+    throw new Error('ยอดเงินโปรเจกต์เปลี่ยนแล้ว กรุณาตรวจและยืนยันปิดใหม่');
+  let transfer=null;
+  if(cents_(preview.remaining)>0) {
+    transfer=newTx_(validateTx_({transaction_date:today_(),transaction_type:'INCOME',account_id:'',amount:preview.remaining,
+      company_kind:'MOVE',company_funding:'PROJECT',project_name:name,to_project:COMPANY_POOL,project_finished:true,
+      description:'ปิดโปรเจกต์ · '+name+' → '+COMPANY_POOL,status:'ACTIVE',source_type:'WEB'}));
+    checkCompanyChange_(transfer);
+  }
+  companyProjectSheet_(true);
+  let record=companyProjectRecords_().find(p=>p.project_name===name);
+  if(!record) { record={project_id:id_('PRJ'),project_name:name,status:'ACTIVE',created_at:now_()};appendObj_(SH.PROJECTS,record);record=companyProjectRecords_().find(p=>p.project_name===name); }
+  if(transfer) {
+    prepareCompanyTx_(transfer);appendObj_(SH.TX,transfer);
+    audit_('TRANSACTION',transfer.transaction_id,'CREATE','','',JSON.stringify(transfer),'ย้ายเงินเหลือเมื่อปิดโปรเจกต์');
+  }
+  record.status='CLOSED';record.closed_at=now_();record.close_transaction_id=transfer?.transaction_id||'';
+  writeObj_(SH.PROJECTS,record._row,record);
+  audit_('COMPANY_PROJECT',record.project_id,'CLOSE','status','ACTIVE','CLOSED','ย้ายเข้ากองกลาง '+preview.remaining.toFixed(2)+' บาท');
+  return transactionMutationResult_({moved_amount:preview.remaining});
+}); }
 function companyWallet_(tx) {
   if(tx.company_funding==='PERSONAL') return '';
   if(tx.company_funding==='POOL') return COMPANY_POOL;
@@ -345,7 +421,7 @@ function getCompanyFundingPreview(input,id) {
   return withReadCache_(()=>{
     const old=id?rows_(SH.TX).find(t=>t.transaction_id===id):null;
     if(id&&!old) throw new Error('ไม่พบรายการเดิม');
-    const tx=Object.assign({},old||{transaction_id:'PREVIEW'},validateTx_(Object.assign({},old||{},input,{status:'ACTIVE'}),old?.category_id,old?.category_id));
+    const tx=Object.assign({},old||{transaction_id:'PREVIEW'},validateTx_(Object.assign({},old||{},input,{status:'ACTIVE'}),old?.category_id,old?.category_id,old?.status==='ACTIVE'?old:null));
     const ledger=companyLedger_(companyCandidate_(tx)),funded=ledger.funding[tx.transaction_id]||0;
     return {funded_amount:funded/100,personal_amount:(cents_(tx.amount)-funded)/100,source:tx.company_funding||'PERSONAL'};
   });
@@ -404,7 +480,7 @@ function planCompanyTransaction_(tx,input,excludeRefundId) {
 // Replay project funding in transaction date and original row order. Legacy expenses stay unassigned.
 function companyLedger_(transactions) {
   const txs=(transactions||rows_(SH.TX)).filter(t=>t.status==='ACTIVE');
-  const wallets=Object.create(null),funding={},received=Object.create(null),spent=Object.create(null);
+  const wallets=Object.create(null),funding={},received=Object.create(null),spent=Object.create(null),movedOut=Object.create(null);
   const sorted=txs.map((t,i)=>({t,i})).sort((a,b)=>String(a.t.transaction_date).localeCompare(String(b.t.transaction_date))||a.i-b.i);
   for(const {t} of sorted) {
     const p=kindWallet(t),kind=t.company_kind||'',n=cents_(t.amount);
@@ -415,6 +491,7 @@ function companyLedger_(transactions) {
     else if(kind==='MOVE') {
       if(wallets[p]<n) throw new Error('เงินล่วงหน้าไม่พอสำหรับย้ายจากโปรเจกต์ '+p);
       wallets[p]-=n; wallets[t.to_project]=(wallets[t.to_project]||0)+n;
+      received[t.to_project]=(received[t.to_project]||0)+n;movedOut[p]=(movedOut[p]||0)+n;
     } else if(kind==='RETURN') {
       if(wallets[p]<n) throw new Error('เงินล่วงหน้าไม่พอสำหรับคืนบริษัทในโปรเจกต์ '+p);
       wallets[p]-=n;
@@ -428,14 +505,16 @@ function companyLedger_(transactions) {
   }
   function kindWallet(t) {return t.company_kind==='MIXED_RECEIPT'?COMPANY_POOL:companyWallet_(t);}
   return {funding,remaining:Object.values(wallets).reduce((a,b)=>a+b,0)/100,
-    pool:{remaining:(wallets[COMPANY_POOL]||0)/100,received:(received[COMPANY_POOL]||0)/100,spent:(spent[COMPANY_POOL]||0)/100},
-    projects:Object.keys(wallets).filter(p=>p!==COMPANY_POOL).sort().map(project_name=>({project_name,remaining:wallets[project_name]/100,received:(received[project_name]||0)/100,spent:(spent[project_name]||0)/100}))};
+    pool:{remaining:(wallets[COMPANY_POOL]||0)/100,received:(received[COMPANY_POOL]||0)/100,spent:(spent[COMPANY_POOL]||0)/100,moved_out:(movedOut[COMPANY_POOL]||0)/100},
+    projects:Object.keys(wallets).filter(p=>p!==COMPANY_POOL).sort().map(project_name=>({project_name,remaining:wallets[project_name]/100,received:(received[project_name]||0)/100,spent:(spent[project_name]||0)/100,moved_out:(movedOut[project_name]||0)/100}))};
 }
 function checkCompanyChange_(next,removeId,excludeRefundId) {
   const original=rows_(SH.TX),id=removeId||next?.transaction_id;
   const list=original.map(t=>t.transaction_id===id?next:t).filter(Boolean);
   if(next&&!original.some(t=>t.transaction_id===id)) list.push(next);
   const ledger=companyLedger_(list);
+  const closed=new Set(companyProjectRecords_().filter(p=>p.status==='CLOSED').map(p=>p.project_name));
+  if(ledger.projects.some(p=>closed.has(p.project_name)&&cents_(p.remaining)!==0)) throw new Error('การเปลี่ยนนี้ทำให้โปรเจกต์ที่ปิดแล้วมีเงินเหลือ กรุณาตรวจรายการย้ายเข้ากองกลางตอนปิดโปรเจกต์');
   const byId=Object.fromEntries(list.filter(t=>t.status==='ACTIVE').map(t=>[t.transaction_id,t]));
   const used={};
   matches_().filter(m=>m.status==='ACTIVE'&&m.reimbursement_transaction_id!==excludeRefundId&&byId[m.reimbursement_transaction_id]).forEach(m=>used[m.claim_id]=(used[m.claim_id]||0)+cents_(m.amount));
@@ -493,7 +572,7 @@ function companyClaims_(excludeRefundId) {
 function getCompanySummary() {
   const claims=companyClaims_();
   const ledger=companyLedger_();
-  return {pool:ledger.pool,projects:ledger.projects,advance_remaining:ledger.remaining,claims:publicRows_(claims),total:claims.reduce((s,c)=>s+Number(c.claim_amount),0),
+  return {pool:ledger.pool,projects:ledger.projects,project_catalog:companyProjectCatalog_(ledger),advance_remaining:ledger.remaining,claims:publicRows_(claims),total:claims.reduce((s,c)=>s+Number(c.claim_amount),0),
     returned:claims.reduce((s,c)=>s+Number(c.returned_amount),0),
     remaining:claims.reduce((s,c)=>s+Number(c.remaining_amount),0)};
 }
@@ -555,7 +634,7 @@ function updateTransaction(id,input) { return withLock_(()=>{
   if(input._reclassifyAdvance&&(old.transaction_type!=='INCOME'||old.company_kind||isCompanyRefund_(old))) throw new Error('รายรับนี้เปลี่ยนประเภทไปแล้ว กรุณาโหลดข้อมูลใหม่');
   if(rows_(SH.DEBT_TX).some(d=>d.linked_transaction_id===id&&d.status==="ACTIVE")) throw new Error("รายการชำระหนี้ให้ VOID แล้วบันทึกใหม่");
   const fields=validateTx_(Object.assign({},old,input,{status:"ACTIVE"}),old.category_id,
-    old.expense_owner===(input.expense_owner||old.expense_owner)?old.category_id:"");
+    old.expense_owner===(input.expense_owner||old.expense_owner)?old.category_id:"",old);
   const next=Object.assign({},old,fields,{updated_at:now_()});
   const oldRefund=isCompanyRefund_(old),newRefund=isCompanyRefund_(next);
   const allocations=planCompanyTransaction_(next,input,oldRefund?id:'');
