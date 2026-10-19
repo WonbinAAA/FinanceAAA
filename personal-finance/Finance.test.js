@@ -64,6 +64,7 @@ context.ocrFetchCount=0;
 context.ocrMockResponse={getResponseCode:()=>200,getContentText:()=>JSON.stringify({responses:[{
   fullTextAnnotation:{text:'โอนเงินสำเร็จ\nจำนวนเงิน 123.45 บาท\nวันที่ 05/10/2569'}}]})};
 vm.runInContext(fs.readFileSync('Code.gs','utf8'),context);
+vm.runInContext(fs.readFileSync('LineSlip.gs','utf8'),context);
 const call = (name,...args) => context[name](...args);
 function seed(name, object) { sheets[name].appendRow(schema[name].map(key=>object[key]??'')); }
 function test(name, fn) { fn(); console.log('PASS',name); }

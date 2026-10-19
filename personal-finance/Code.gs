@@ -697,7 +697,10 @@ function lineBridgeRequest_(event) {
 }
 function doPost(event) {
   let result;
-  try { result=lineHandleEvent_(lineBridgeRequest_(event)); }
+  try {
+    const body=JSON.parse(event?.postData?.contents||'{}');
+    result=body.n8n_action?n8nSlipDispatch_(body):lineHandleEvent_(lineBridgeRequest_(event));
+  }
   catch(error) { result={ok:false,error:"คำขอ LINE ไม่ได้รับอนุญาต"}; }
   return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
 }

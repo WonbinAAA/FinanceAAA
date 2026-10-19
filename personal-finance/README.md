@@ -1,10 +1,14 @@
 # Personal Finance — Google Apps Script
 
-ซอร์สระบบรายรับ–รายจ่าย รุ่น 49 ณ วันที่ 16 ตุลาคม 2569
+ซอร์สระบบรายรับ–รายจ่าย รุ่น 50 ณ วันที่ 19 ตุลาคม 2569
 
 หน้าเว็บหลักยังอยู่ที่ [FinanceAAA](https://wonbinaaa.github.io/FinanceAAA/) และฝัง Google Apps Script deployment เดิม โฟลเดอร์นี้เก็บซอร์สสำหรับดูแลและสำรองงาน ไม่ใช่เว็บ HTML ที่เปิดใช้งานแยกได้โดยตรง เพราะใช้ `google.script.run` และ template ของ Apps Script
 
 ## โครงสร้าง
+
+ส่วนรับสลิป LINE ผ่าน n8n Cloud เตรียมแล้ว แต่ยังไม่เปิดใช้งานจริงจนกว่าจะเชื่อมบัญชีและ Credentials ดู [คู่มือตั้งค่า n8n](N8N-LINE-SETUP.md) และ [ไฟล์ workflow](n8n/finance-line-slips.json) ฟีเจอร์ใหม่ตั้งต้นเป็นปิด และ workflow ตั้งต้นเป็น inactive ข้อมูลครบแล้วบันทึกทันทีตามสิทธิ์ที่เจ้าของตั้งไว้ ขาดข้อมูลจะถามกลับใน LINE
+
+`LineSlip.gs` เป็น backend ของสลิป, `SlipAutomation.test.js` เป็นชุดทดสอบจำลองเพิ่มเติม และ `n8n/build-workflow.cjs` ใช้สร้างไฟล์นำเข้า ไม่มี secret หรือข้อมูลจริงในไฟล์ workflow
 
 | ไฟล์ | หน้าที่ |
 | --- | --- |
