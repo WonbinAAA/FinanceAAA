@@ -152,6 +152,22 @@ body {
   font-size:11px;
   line-height:1.5
 }
+.today-expenses{display:block;width:100%;padding:18px;margin:0 0 16px;border:1px solid #f0dce5;background:linear-gradient(115deg,#fff6f4,#fff 65%);box-shadow:0 7px 22px #a04c6010;text-align:left;font:inherit;color:var(--text);cursor:pointer}
+.today-expenses:disabled{cursor:wait}
+.today-expenses-heading,.today-expenses-heading>span:first-child{display:flex;align-items:center;gap:8px}
+.today-expenses-heading{justify-content:space-between;flex-wrap:wrap;gap:8px}
+.today-expenses-heading .icon{width:19px;height:19px;color:#d46b85}
+.today-expenses-heading b{font-size:14px}
+.today-expenses-date{font-size:10px;color:#947885;background:#f9edf2;border-radius:99px;padding:5px 9px}
+.today-expenses-values{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);align-items:center;gap:12px;margin:16px 0 14px}
+.today-expenses-personal,.today-expenses-company{display:block;min-width:0}
+.today-expenses-personal>span,.today-expenses-company>span{display:block;font-size:11px;margin-bottom:5px;color:#9c6b7c}
+.today-expenses-personal>b{display:block;font-size:clamp(26px,7.5vw,35px);font-weight:850;line-height:1.25;letter-spacing:-.035em;color:#ba4d70;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.today-expenses-company{padding:12px;background:#f4efff;border:1px solid #eae0fb;border-radius:14px}
+.today-expenses-company>span{color:#866ba7}
+.today-expenses-company>b{display:block;font-size:clamp(17px,4.8vw,21px);line-height:1.4;color:#7850b1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.today-expenses-footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;padding-top:11px;border-top:1px solid #f2e7ec;font-size:10px;line-height:1.6;color:#a28b96}
+.today-expenses-footer>span:last-child{color:#9c607d;font-weight:700}
 .balance-formula {
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));

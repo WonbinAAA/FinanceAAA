@@ -48,6 +48,12 @@
       </div>
     </section>
 
+    <button id="todayExpenseCard" class="card today-expenses" type="button" onclick="openTodayExpenses()" aria-label="ดูรายการของวันนี้" disabled>
+      <span class="today-expenses-heading"><span><svg class="icon" aria-hidden="true"><use href="#icon-expense"></use></svg><b>ค่าใช้จ่ายวันนี้</b></span><span id="todayExpenseDate" class="today-expenses-date">วันนี้</span></span>
+      <span class="today-expenses-values"><span class="today-expenses-personal"><span>เงินส่วนตัว · รวมชำระหนี้</span><b id="todayPersonalExpense">฿0.00</b></span><span class="today-expenses-company"><span>เงินบริษัท</span><b id="todayCompanyExpense">฿0.00</b></span></span>
+      <span class="today-expenses-footer"><span id="todayExpenseHint">กำลังโหลดข้อมูลวันนี้...</span><span>ดูรายการวันนี้ <span aria-hidden="true">›</span></span></span>
+    </button>
+
     <section class="summary-grid">
       <div class="card metric metric-income"><span class="metric-icon"><svg class="icon"><use href="#icon-income"></use></svg></span><span>รายรับ</span><b id="income">฿0.00</b><small>รายได้จริง</small></div>
       <div class="card metric metric-expense"><span class="metric-icon"><svg class="icon"><use href="#icon-expense"></use></svg></span><span>รายจ่ายส่วนตัว</span><b id="personal">฿0.00</b><small>เงินที่จ่ายออก</small></div>

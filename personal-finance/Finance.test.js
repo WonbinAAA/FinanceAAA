@@ -1151,7 +1151,101 @@ async function testTransactionPeriodAndCompanyHistoryUI() {
   console.log('PASS Period modes ignore hidden dates, reject reversed ranges and discard stale results; paid claims stay in company history');
 }
 
-testFrontendSaveNavigation().then(testRefundFormRecovery).then(testCompanyConsentUI).then(testProjectManagerUI).then(testTransactionPeriodAndCompanyHistoryUI).then(()=>{
+function testTodayExpenseTotals() {
+  const snapshots=Object.fromEntries(Object.entries(sheets).map(([name,sheet])=>[name,sheet.data.map(row=>row.slice())]));
+  const originalToday=context.today_;
+  try {
+    ['รายการเงิน','รายการหนี้','เงินสำรองบริษัท','จับคู่เงินคืนบริษัท','โปรเจกต์บริษัท','หนี้สิน'].forEach(name=>{
+      if(sheets[name]) sheets[name].data=sheets[name].data.slice(0,2);
+    });
+    context.today_=()=> '2026-11-01';
+    const fixture=(id,amount,fields={})=>call('appendObj_','รายการเงิน',{
+      transaction_id:id,user_id:'USR001',transaction_date:'2026-11-01',transaction_type:'EXPENSE',
+      expense_owner:'PERSONAL',account_id:'ACC002',category_id:'CAT008',amount,status:'ACTIVE',description:'ทดสอบยอดวันนี้',...fields});
+    fixture('DAILY-ADVANCE',5000,{transaction_date:'2026-10-31',transaction_type:'INCOME',expense_owner:'COMPANY',company_kind:'ADVANCE',company_funding:'POOL'});
+    fixture('DAILY-SATANG-A',0.1);fixture('DAILY-SATANG-B',0.2);
+    fixture('DAILY-OTHER-ACCOUNT',100.25,{account_id:'ACC003'});
+    fixture('DAILY-PRINCIPAL',80.45,{category_id:'CAT022'});
+    fixture('DAILY-INTEREST',3.75,{category_id:'CAT021'});
+    fixture('DAILY-COMPANY',250.15,{expense_owner:'COMPANY',company_funding:'PERSONAL'});
+    fixture('DAILY-OTHER-ALLOWANCE',20.25,{expense_owner:'COMPANY',company_kind:'OTHER_ALLOWANCE',company_funding:'POOL',company_funded_amount:20.25});
+    fixture('DAILY-SELF-ALLOWANCE',600,{expense_owner:'COMPANY',company_kind:'SELF_ALLOWANCE',company_funding:'POOL',company_funded_amount:600});
+    fixture('DAILY-RETURN',30,{expense_owner:'COMPANY',company_kind:'RETURN',company_funding:'POOL'});
+    fixture('DAILY-MOVE',50,{transaction_type:'TRANSFER',company_kind:'MOVE',company_funding:'POOL',to_project:'Daily project'});
+    fixture('DAILY-TRANSFER',500,{transaction_type:'TRANSFER',to_account_id:'ACC001'});
+    fixture('DAILY-YESTERDAY',40.55,{transaction_date:'2026-10-31'});
+    fixture('DAILY-TOMORROW',80,{transaction_date:'2026-11-02'});
+    fixture('DAILY-VOID',900,{status:'VOID'});fixture('DAILY-DRAFT',700,{status:'DRAFT'});
+    fixture('DAILY-INCOME',100,{transaction_type:'INCOME',category_id:'CAT001'});
+    fixture('DAILY-REFUND',25,{transaction_type:'INCOME',category_id:'CAT004'});
+    call('appendObj_','หนี้สิน',{debt_id:'DAILY-DEBT',user_id:'USR001',debt_name:'หนี้ทดสอบวันนี้',opening_balance:1000,start_date:'2026-10-01',status:'ACTIVE'});
+    call('appendObj_','รายการหนี้',{debt_transaction_id:'DAILY-DEBT-PAYMENT',debt_id:'DAILY-DEBT',transaction_type:'PAYMENT',amount:80.45,
+      transaction_date:'2026-11-01',account_id:'ACC002',linked_transaction_id:'DAILY-PRINCIPAL',status:'ACTIVE'});
+    const dashboard=call('getBootstrap').dashboard;
+    assert.equal(dashboard.today_expenses.date,'2026-11-01');
+    assert.equal(dashboard.today_expenses.personal_expense,184.75);
+    assert.equal(dashboard.today_expenses.company_expense,270.4);
+    assert.equal(dashboard.personal_expense,224.85); // Existing lifetime expenses still exclude debt principal.
+    assert.equal(dashboard.company_expense,870.4); // Existing non-cash allowance accounting is unchanged.
+    const payment=call('payDebt',{debt_id:'DAILY-DEBT',amount:10,account_id:'ACC002',transaction_date:'2026-11-01'});
+    assert.equal(payment.dashboard.today_expenses.personal_expense,194.75);
+    assert.equal(payment.dashboard.personal_expense,dashboard.personal_expense);
+    assert.equal(payment.dashboard.real_cash,Math.round((dashboard.real_cash-10)*100)/100);
+    const edited=call('updateTransaction','DAILY-OTHER-ACCOUNT',{amount:110.25});
+    assert.equal(edited.dashboard.today_expenses.personal_expense,204.75);
+    const cancelled=call('voidTransaction','DAILY-OTHER-ACCOUNT','ทดสอบ');
+    assert.equal(cancelled.dashboard.today_expenses.personal_expense,94.5);
+    context.today_=()=> '2026-11-02';
+    assert.equal(call('getDashboard').today_expenses.personal_expense,80);
+    assert.equal(call('getDashboard').today_expenses.company_expense,0);
+    context.today_=()=> '2026-11-03';
+    assert.equal(call('getDashboard').today_expenses.personal_expense,0);
+    assert.equal(call('getDashboard').today_expenses.company_expense,0);
+  } finally {
+    context.today_=originalToday;
+    Object.entries(snapshots).forEach(([name,data])=>{sheets[name].data=data;});
+    Object.keys(sheets).filter(name=>!snapshots[name]).forEach(name=>delete sheets[name]);
+  }
+  console.log('PASS Daily cash expenses include debt principal once and all accounts, exclude non-cash/company returns, update after edits/VOID and reset by Bangkok day');
+}
+
+async function testTodayExpenseCardUI() {
+  const source=fs.readFileSync('JavaScript.html','utf8');
+  const body=source.slice(source.indexOf('<script>')+8,source.indexOf("document.addEventListener('click'"));
+  const elements={},element=id=>elements[id] ||= {value:'',textContent:'',disabled:false,classList:{toggle(){},add(){},remove(){}}};
+  const buttons=['all','personal','company','income','transfer'].map(view=>({dataset:{view},setAttribute(name,value){this[name]=value;}}));
+  let delay,callback,refreshes=0,clock=Date.parse('2026-10-31T16:59:59Z');
+  class ClockDate extends Date {static now(){return clock;}}
+  const ui=vm.createContext({console,Date:ClockDate,window:{},document:{getElementById:element,querySelectorAll:()=>buttons},
+    setTimeout:(fn,ms)=>{callback=fn;delay=ms;return 1;},clearTimeout(){}});
+  vm.runInContext(body,ui);
+  ui.notify=()=>{};
+  ui.renderDashboard({});assert.equal(element('todayExpenseCard').disabled,true);
+  ui.renderDashboard({today_expenses:{date:'2026-10-31',personal_expense:123.45,company_expense:678.90}});
+  assert.match(element('todayPersonalExpense').textContent,/123\.45/);
+  assert.match(element('todayCompanyExpense').textContent,/678\.90/);
+  assert.equal(element('todayExpenseCard').disabled,false);
+  assert.match(element('todayExpenseDate').textContent,/31 ต.ค. 2569/);
+  ui.renderMutation({dashboard:{today_expenses:{date:'2026-11-01',personal_expense:0,company_expense:0}}});
+  assert.match(element('todayExpenseHint').textContent,/ยังไม่มี/);
+  let visits=0;
+  ui.showPage=name=>{assert.equal(name,'Transactions');visits++;};
+  ui.openTodayExpenses();assert.equal(visits,0);
+  vm.runInContext("dataReady=true;BOOT={dashboard:{today_expenses:{date:'2026-11-01'}},filterCategories:[]}",ui);
+  ['filterAccount','filterCategory','filterSearch','filterType','filterOwner'].forEach(id=>element(id).value='STALE');
+  element('filterMonth').value='2026-10';element('filterDateFrom').value='2026-09-01';element('filterDateTo').value='2026-09-30';
+  ui.openTodayExpenses();assert.equal(visits,1);
+  const filters=ui.currentFilters();assert.equal(filters.date,'2026-11-01');
+  ['month','date_from','date_to','account_id','category_id','query','type','owner'].forEach(key=>assert.equal(filters[key],''));
+  assert.equal(buttons[0]['aria-pressed'],'true');assert.equal(buttons[1]['aria-pressed'],'false');
+  ui.refreshAll=async()=>{refreshes++;};
+  ui.scheduleTodayRefresh();assert.equal(delay,2000);
+  clock+=2000;await callback();assert.equal(refreshes,1);assert.ok(delay>86398000&&delay<=86401000);
+  console.log('PASS Today card updates on mutation, opens the server date without old filters and refreshes at Bangkok midnight');
+}
+
+testFrontendSaveNavigation().then(testRefundFormRecovery).then(testCompanyConsentUI).then(testProjectManagerUI).then(testTransactionPeriodAndCompanyHistoryUI).then(testTodayExpenseCardUI).then(()=>{
+  testTodayExpenseTotals();
   testTransactionDateRangesAndCompanyHistory();
   testMutationSnapshotRendering();
   testFreshOnlyStartup();

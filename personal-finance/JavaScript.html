@@ -14,6 +14,7 @@ let toastTimer = null;
 let searchTimer = null;
 let refreshRequest = 0;
 let transactionRequest = 0;
+let todayRefreshTimer = null;
 let dataReady = false;
 let activeAccountPicker = 'account';
 let showAllAccounts = false;
@@ -532,6 +533,13 @@ function renderDashboard(data) {
   $('personal').textContent = money(data.personal_expense);
   $('company').textContent = money(data.company_receivable);
   $('debt').textContent = money(data.debt_balance);
+  const today=data.today_expenses;
+  $('todayExpenseCard').disabled=!today?.date;
+  $('todayExpenseDate').textContent=today?.date?dateTH(today.date):'วันนี้';
+  $('todayPersonalExpense').textContent=money(today?.personal_expense||0);
+  $('todayCompanyExpense').textContent=money(today?.company_expense||0);
+  $('todayExpenseHint').textContent=!today?.date?'กำลังโหลดข้อมูลวันนี้...':
+    Number(today.personal_expense)>0||Number(today.company_expense)>0?'ทุกบัญชี':'ยังไม่มีค่าใช้จ่ายวันนี้';
 }
 function renderMutation(result) {
   if (!result) return;
@@ -733,7 +741,7 @@ function renderTransactionFilterCategories(selected = $('filterCategory').value)
     .map(item => option(item.category_id, item.category_name + (categoryActive(item) ? '' : ' (หยุดใช้)'))).join('');
   $('filterCategory').value = items.some(item => item.category_id === selected) ? selected : '';
 }
-function selectTransactionView(view) {
+function selectTransactionView(view, reload=true) {
   const filters = {
     all: ['', ''], personal: ['EXPENSE', 'PERSONAL'], company: ['EXPENSE', 'COMPANY'],
     income: ['INCOME', ''], transfer: ['TRANSFER', '']
@@ -743,7 +751,15 @@ function selectTransactionView(view) {
   document.querySelectorAll('.transaction-view-switch button').forEach(button =>
     button.setAttribute('aria-pressed', String(button.dataset.view === view)));
   renderTransactionFilterCategories();
-  loadTransactions();
+  if(reload) loadTransactions();
+}
+function openTodayExpenses() {
+  if(!requireFreshData()||!BOOT?.dashboard?.today_expenses?.date) return;
+  $('filterPeriod').value='DATE';
+  $('filterDate').value=BOOT.dashboard.today_expenses.date;
+  ['filterAccount','filterCategory','filterSearch'].forEach(id=>$(id).value='');
+  selectTransactionView('all',false);
+  showPage('Transactions');
 }
 async function loadTransactions() {
   const request = ++transactionRequest;
@@ -1101,6 +1117,11 @@ async function refreshAll() {
     return false;
   }
 }
+function scheduleTodayRefresh() {
+  clearTimeout(todayRefreshTimer);
+  const untilMidnight=86400000-(Date.now()+7*60*60*1000)%86400000;
+  todayRefreshTimer=setTimeout(()=>refreshAll().finally(scheduleTodayRefresh),untilMidnight+1000);
+}
 function installDialogScrollLock() {
   let saved = null;
   const sync = () => {
@@ -1161,4 +1182,5 @@ $('debtDueMonthEdit').addEventListener('change',updateDebtDueMonth);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
 installDialogScrollLock();
 refreshAll();
+scheduleTodayRefresh();
 </script>

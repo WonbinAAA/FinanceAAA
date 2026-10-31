@@ -818,6 +818,8 @@ function getDashboard() {
     .reduce((sum,a)=>sum+cents_(a.opening_balance),0);
   let incomeCents=0,personalCents=0,companyCents=0,inflowCents=0,outflowCents=0;
   let availableInflow=0,availableOutflow=0;
+  const day=today_();
+  let todayPersonalCents=0,todayCompanyCents=0;
   txs.forEach(t=>{ const amount=cents_(t.amount);
     if(t.company_kind==='MOVE') return;
     if(t.company_kind==='SELF_ALLOWANCE') {incomeCents+=amount;companyCents+=amount;return;}
@@ -831,6 +833,10 @@ function getDashboard() {
       balanceCents[t.account_id]=(balanceCents[t.account_id]||0)-amount;
       outflowCents+=amount;
       if(availableIds.has(String(t.account_id))) availableOutflow+=amount;
+      if(String(t.transaction_date)===day&&t.company_kind!=='RETURN') {
+        if(t.expense_owner==='COMPANY') todayCompanyCents+=amount;
+        else todayPersonalCents+=amount;
+      }
       if(t.expense_owner==="COMPANY") { if(t.company_kind!=='RETURN') companyCents+=amount; }
       else if(!paymentIds.has(String(t.transaction_id))) personalCents+=amount;
     }
@@ -850,6 +856,7 @@ function getDashboard() {
     available_inflow:availableInflow/100,available_outflow:availableOutflow/100,
     balances,income:incomeCents/100,personal_expense:personalCents/100,
     company_expense:companyCents/100,company_receivable:companyDue,debt_balance:debt,
+    today_expenses:{date:day,personal_expense:todayPersonalCents/100,company_expense:todayCompanyCents/100},
     opening_total:openingCents/100,cash_inflow:inflowCents/100,cash_outflow:outflowCents/100,
     company_advance:companyLedger_().remaining,net_position:totalCents/100+companyDue-debt-companyLedger_().remaining};
 }
