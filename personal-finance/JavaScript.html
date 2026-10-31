@@ -659,11 +659,14 @@ function renderCompany(data) {
   $('claimTotal').textContent = money(data.total);
   $('claimReturned').textContent = money(data.returned);
   $('claimRemaining').textContent = money(data.remaining);
-  const visibleClaims = data.claims.filter(item=>Number(item.claim_amount)>0);
+  const visibleClaims = data.claims.filter(item=>Number(item.claim_amount)>0&&Number(item.remaining_amount)>0);
   $('claimList').innerHTML = visibleClaims.length ? visibleClaims.map(item => `<div class="list-row">
     <div><div class="row-title">${esc(item.description || 'รายการบริษัท')}</div>
     <div class="row-sub">${dateTH(item.expense_date)} · ใช้เงินล่วงหน้า ${money(item.advance_used || 0)} · คืนแล้ว ${money(item.returned_amount)}</div></div>
     <div class="row-value company-claim-amount"><small>${Number(item.remaining_amount)>0?'ค้างคืน':'คืนครบแล้ว'}</small>${money(item.remaining_amount)}</div></div>`).join('') : '<div class="empty">ยังไม่มีรายการบริษัทค้างคืน</div>';
+  const companyTransactions=data.transactions||[];
+  $('companyTransactionList').innerHTML=companyTransactions.length?companyTransactions.map(transactionRow).join(''):
+    '<div class="empty">ยังไม่มีรายการรับ–จ่ายบริษัท</div>';
 }
 function debtIcon(name) {
   const value = String(name || '').trim().toLowerCase();
@@ -709,8 +712,18 @@ function selectRecurringIcon(key) {
   renderRecurringIconChoices();
 }
 function currentFilters() {
-  return { month: $('filterMonth').value, date: $('filterDate').value, type: $('filterType').value, owner: $('filterOwner').value,
+  const period=$('filterPeriod').value||'MONTH';
+  return { month: period==='MONTH'?$('filterMonth').value:'', date: period==='DATE'?$('filterDate').value:'',
+    date_from:period==='RANGE'?$('filterDateFrom').value:'',date_to:period==='RANGE'?$('filterDateTo').value:'',type: $('filterType').value, owner: $('filterOwner').value,
     account_id: $('filterAccount').value, category_id: $('filterCategory').value, query: $('filterSearch').value.trim() };
+}
+function syncTransactionPeriod() {
+  const period=$('filterPeriod').value||'MONTH';
+  $('filterMonthField').classList.toggle('hidden',period!=='MONTH');
+  $('filterDateField').classList.toggle('hidden',period!=='DATE');
+  $('filterRangeFields').classList.toggle('hidden',period!=='RANGE');
+  $('filterDateFrom').max=$('filterDateTo').value;
+  $('filterDateTo').min=$('filterDateFrom').value;
 }
 function renderTransactionFilterCategories(selected = $('filterCategory').value) {
   const type = $('filterType').value, owner = $('filterOwner').value;
@@ -734,8 +747,21 @@ function selectTransactionView(view) {
 }
 async function loadTransactions() {
   const request = ++transactionRequest;
+  syncTransactionPeriod();
+  const filters=currentFilters();
+  const dateError=filters.date_from&&filters.date_to&&filters.date_from>filters.date_to?
+    'วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด':$('filterPeriod').value==='RANGE'&&!filters.date_from&&!filters.date_to?
+    'เลือกวันที่เริ่มต้นหรือวันที่สิ้นสุดเพื่อค้นหา':$('filterPeriod').value==='DATE'&&!filters.date?'เลือกวันที่เพื่อค้นหา':'';
+  $('filterDateError').textContent=dateError;
+  $('filterDateError').classList.toggle('hidden',!dateError);
+  if(dateError) {
+    $('transactionCount').textContent='รอเลือกวันที่';
+    $('transactionList').innerHTML='<div class="empty">'+esc(dateError)+'</div>';
+    return;
+  }
+  $('transactionCount').textContent='กำลังค้นหา...';
   try {
-    const items = await server('getTransactions', currentFilters());
+    const items = await server('getTransactions', filters);
     if (request !== transactionRequest) return;
     $('transactionCount').textContent = items.length + ' รายการตามตัวกรอง';
     $('transactionList').innerHTML = items.length ? items.map(transactionRow).join('') : '<div class="empty">ไม่พบรายการ</div>';
@@ -1125,7 +1151,7 @@ document.addEventListener('click', event => {
   cancelDialog(id);
 }));
 $('helpDialog').addEventListener('cancel', event => { event.preventDefault(); closeHelp(); });
-['filterMonth', 'filterDate', 'filterType', 'filterOwner', 'filterAccount', 'filterCategory'].forEach(id =>
+['filterPeriod', 'filterMonth', 'filterDate', 'filterDateFrom', 'filterDateTo', 'filterType', 'filterOwner', 'filterAccount', 'filterCategory'].forEach(id =>
   $(id).addEventListener('change', loadTransactions));
 $('filterSearch').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadTransactions, 250); });
 $('category').addEventListener('change', toggleRefundField);

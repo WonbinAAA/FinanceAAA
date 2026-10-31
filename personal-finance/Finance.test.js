@@ -1073,7 +1073,86 @@ async function testProjectManagerUI() {
   console.log('PASS Project manager cancellation writes nothing and addition selects the new shared project');
 }
 
-testFrontendSaveNavigation().then(testRefundFormRecovery).then(testCompanyConsentUI).then(testProjectManagerUI).then(()=>{
+function testTransactionDateRangesAndCompanyHistory() {
+  const sheet=sheets['รายการเงิน'],saved=sheet.data;
+  try {
+    sheet.data=saved.slice(0,2).map(row=>row.slice());
+    const fixtures=[
+      ['BEFORE','2026-09-29','INCOME','', 'CAT001',''],
+      ['START','2026-09-30','INCOME','', 'CAT001',''],
+      ['END','2026-10-02','INCOME','', 'CAT001',''],
+      ['AFTER','2026-10-03','INCOME','', 'CAT001',''],
+      ['COMPANY-EXPENSE','2026-10-01','EXPENSE','COMPANY','CAT008',''],
+      ['COMPANY-REFUND','2026-10-01','INCOME','','CAT004',''],
+      ['COMPANY-ADVANCE','2026-10-01','INCOME','','CAT001','ADVANCE'],
+      ['COMPANY-RETURN','2026-10-01','EXPENSE','COMPANY','CAT008','RETURN'],
+      ['COMPANY-SELF','2026-10-01','INCOME','','CAT003','SELF_ALLOWANCE'],
+      ['COMPANY-MOVE','2026-10-01','TRANSFER','','','MOVE'],
+      ['PERSONAL','2026-10-01','EXPENSE','PERSONAL','CAT008','']
+    ];
+    fixtures.forEach(([transaction_id,transaction_date,transaction_type,expense_owner,category_id,company_kind])=>
+      call('appendObj_','รายการเงิน',{transaction_id,transaction_date,transaction_type,expense_owner,category_id,company_kind,
+        account_id:'ACC002',amount:10,status:'ACTIVE',description:'ค้นหาเดียวกัน'}));
+    const ids=filters=>Array.from(call('getTransactions',filters),t=>t.transaction_id);
+    const between=ids({date_from:'2026-09-30',date_to:'2026-10-02',month:'2026-08',date:'2026-08-01',type:'INCOME',category_id:'CAT001',query:'ค้นหา'});
+    assert.deepEqual(between,['END','COMPANY-ADVANCE','START']);
+    assert.deepEqual(ids({date_from:'2026-09-30',date_to:'2026-09-30'}),['START']);
+    assert.deepEqual(ids({date_from:'2026-10-03'}),['AFTER']);
+    assert.deepEqual(ids({date_to:'2026-09-29'}),['BEFORE']);
+    assert.equal(ids({date_from:'2026-09-30',date_to:'2026-10-02',account_id:'ACC001'}).length,0);
+    assert.equal(ids({date_from:'2026-09-30',date_to:'2026-10-02',owner:'COMPANY'}).length,2);
+    assert.throws(()=>ids({date_from:'2026-10-03',date_to:'2026-09-30'}),/วันที่เริ่มต้น/);
+    assert.throws(()=>ids({date_from:'2026-02-30'}),/วันที่ไม่ถูกต้อง/);
+    assert.deepEqual(ids({company_only:true}).sort(),['COMPANY-ADVANCE','COMPANY-EXPENSE','COMPANY-REFUND','COMPANY-RETURN','COMPANY-SELF']);
+    assert.equal(ids({date_from:'2026-11-01',date_to:'2026-11-02'}).length,0);
+  } finally {sheet.data=saved;}
+  console.log('PASS Inclusive date range crosses months, combines filters and selects only company receipts/expenses');
+}
+
+async function testTransactionPeriodAndCompanyHistoryUI() {
+  const source=fs.readFileSync('JavaScript.html','utf8');
+  const body=source.slice(source.indexOf('<script>')+8,source.indexOf("document.addEventListener('click'"));
+  const elements={},element=id=>elements[id] ||= {value:'',innerHTML:'',textContent:'',classList:{toggle(name,on){this[name]=on;},add(){},remove(){}}};
+  const ui=vm.createContext({console,window:{},document:{getElementById:element},setTimeout,clearTimeout});
+  vm.runInContext(body,ui);
+  element('filterPeriod').value='RANGE';element('filterMonth').value='2026-10';element('filterDate').value='2026-10-30';
+  element('filterDateFrom').value='2026-09-30';element('filterDateTo').value='2026-10-02';
+  let requests=0,pending=[];
+  ui.server=(name,filters)=>{
+    assert.equal(name,'getTransactions');requests++;
+    assert.equal(filters.month,'');assert.equal(filters.date,'');
+    return new Promise(resolve=>pending.push(resolve));
+  };
+  ui.fail=error=>{throw error;};
+  const first=ui.loadTransactions();
+  assert.equal(element('filterMonthField').classList.hidden,true);
+  assert.equal(element('filterRangeFields').classList.hidden,false);
+  assert.equal(element('filterDateTo').min,'2026-09-30');
+  const second=ui.loadTransactions();
+  pending[1]([]);await second;
+  pending[0]([{transaction_id:'STALE'}]);await first;
+  assert.equal(element('transactionCount').textContent,'0 รายการตามตัวกรอง');
+  assert.doesNotMatch(element('transactionList').innerHTML,/STALE/);
+  element('filterDateFrom').value='2026-10-03';await ui.loadTransactions();
+  assert.equal(requests,2);assert.match(element('filterDateError').textContent,/วันที่เริ่มต้น/);
+  element('filterPeriod').value='MONTH';ui.syncTransactionPeriod();
+  assert.equal(ui.currentFilters().month,'2026-10');assert.equal(ui.currentFilters().date_from,'');
+  element('filterPeriod').value='DATE';assert.equal(ui.currentFilters().date,'2026-10-30');assert.equal(ui.currentFilters().month,'');
+  ui.fillProjectSelects=()=>{};ui.renderProjectManager=()=>{};
+  ui.renderCompany({pool:{},projects:[],total:120,returned:100,remaining:20,claims:[
+    {claim_amount:100,remaining_amount:0,returned_amount:100,description:'คืนครบซ่อนจากรายการค้าง',expense_date:'2026-10-01'},
+    {claim_amount:20,remaining_amount:20,returned_amount:0,description:'ยังค้างแสดงต่อ',expense_date:'2026-10-02'}],
+    transactions:[{transaction_id:'HISTORY-PAID',transaction_type:'INCOME',amount:100,category_name:'เงินคืนบริษัท',transaction_date:'2026-10-03',account_name:'เงินสด'}]});
+  assert.doesNotMatch(element('claimList').innerHTML,/คืนครบซ่อนจากรายการค้าง/);
+  assert.match(element('claimList').innerHTML,/ยังค้างแสดงต่อ/);
+  assert.match(element('companyTransactionList').innerHTML,/data-id="HISTORY-PAID"/);
+  assert.match(element('claimReturned').textContent,/100/);
+  assert.match(element('companyTransactionList').innerHTML,/เงินคืนบริษัท/);
+  console.log('PASS Period modes ignore hidden dates, reject reversed ranges and discard stale results; paid claims stay in company history');
+}
+
+testFrontendSaveNavigation().then(testRefundFormRecovery).then(testCompanyConsentUI).then(testProjectManagerUI).then(testTransactionPeriodAndCompanyHistoryUI).then(()=>{
+  testTransactionDateRangesAndCompanyHistory();
   testMutationSnapshotRendering();
   testFreshOnlyStartup();
   testCompanyProjectField();

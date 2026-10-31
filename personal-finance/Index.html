@@ -85,8 +85,14 @@
         <button type="button" data-view="transfer" aria-pressed="false" onclick="selectTransactionView('transfer')">โอนเงิน</button>
       </div>
       <div class="card filters">
-        <input id="filterMonth" type="month" aria-label="เดือน">
-        <input id="filterDate" type="date" aria-label="ค้นหาวันที่">
+        <label class="filter-period-mode">ค้นหาตาม<select id="filterPeriod" aria-label="รูปแบบช่วงเวลา"><option value="MONTH">รายเดือน</option><option value="DATE">วันเดียว</option><option value="RANGE">ช่วงวันที่</option></select></label>
+        <label id="filterMonthField">เดือน<input id="filterMonth" type="month" aria-label="เดือน"></label>
+        <label id="filterDateField" class="hidden">วันที่<input id="filterDate" type="date" aria-label="ค้นหาวันที่"></label>
+        <div id="filterRangeFields" class="filter-date-range hidden">
+          <label>วันที่เริ่มต้น<input id="filterDateFrom" type="date" aria-label="วันที่เริ่มต้น"></label>
+          <label>วันที่สิ้นสุด<input id="filterDateTo" type="date" aria-label="วันที่สิ้นสุด"></label>
+        </div>
+        <p id="filterDateError" class="filter-date-error hidden" role="status" aria-live="polite"></p>
         <input id="filterType" type="hidden" value="">
         <input id="filterOwner" type="hidden" value="">
         <select id="filterAccount" aria-label="บัญชี"><option value="">ทุกบัญชี</option></select>
@@ -117,6 +123,7 @@
         <button class="company-action action-return" onclick="openCompanyFunds('RETURN')"><span class="company-action-icon">↑</span><span>คืนเงินล่วงหน้า<small>ส่งเงินเหลือคืนบริษัท</small></span></button>
       </div><details class="company-legacy-action"><summary>เงินล่วงหน้าที่เคยลงเป็นรายรับแล้ว</summary><p>เปลี่ยนประเภทของรายการเดิม ยอดบัญชีไม่เพิ่มซ้ำ</p><button class="secondary wide" onclick="openCompanyFunds('RECLASSIFY')">เปลี่ยนรายรับเดิมเป็นเงินล่วงหน้า</button></details></section>
       <section class="company-claims-section"><div class="company-section-heading"><h3>รายละเอียดเงินที่ออกแทน</h3></div><div id="claimList" class="card section-card list"></div></section>
+      <section class="company-history-section"><div class="company-section-heading"><h3>รายการรายรับ–รายจ่ายบริษัท</h3></div><div id="companyTransactionList" class="list transaction-cards"><div class="empty">ยังไม่มีรายการรับ–จ่ายบริษัท</div></div></section>
     </section>
 
     <section id="pageDebt" class="page hidden">

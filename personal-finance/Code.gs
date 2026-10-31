@@ -572,7 +572,7 @@ function companyClaims_(excludeRefundId) {
 function getCompanySummary() {
   const claims=companyClaims_();
   const ledger=companyLedger_();
-  return {pool:ledger.pool,projects:ledger.projects,project_catalog:companyProjectCatalog_(ledger),advance_remaining:ledger.remaining,claims:publicRows_(claims),total:claims.reduce((s,c)=>s+Number(c.claim_amount),0),
+  return {pool:ledger.pool,projects:ledger.projects,project_catalog:companyProjectCatalog_(ledger),advance_remaining:ledger.remaining,claims:publicRows_(claims),transactions:getTransactions({company_only:true}),total:claims.reduce((s,c)=>s+Number(c.claim_amount),0),
     returned:claims.reduce((s,c)=>s+Number(c.returned_amount),0),
     remaining:claims.reduce((s,c)=>s+Number(c.remaining_amount),0)};
 }
@@ -870,12 +870,17 @@ function reconcileDatabase() {
 
 function getTransactions(filters) {
   const f=filters||{};
+  const from=f.date_from?isoDate_(f.date_from):'',to=f.date_to?isoDate_(f.date_to):'';
+  if(from&&to&&from>to) throw new Error('วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด');
   const accounts = rows_(SH.ACCOUNTS);
   const categories = rows_(SH.CAT);
   const am = Object.fromEntries(accounts.map(a => [String(a.account_id), a.account_name]));
   const cm = Object.fromEntries(categories.map(c => [String(c.category_id), c.category_name]));
   return publicRows_(rows_(SH.TX)
-    .filter(t=>(f.date?String(t.transaction_date)===String(f.date):!f.month||String(t.transaction_date).slice(0,7)===f.month)&&(!f.type||t.transaction_type===f.type)&&
+    .filter(t=>((from||to)?(!from||String(t.transaction_date)>=from)&&(!to||String(t.transaction_date)<=to):
+      f.date?String(t.transaction_date)===String(f.date):!f.month||String(t.transaction_date).slice(0,7)===f.month)&&(!f.type||t.transaction_type===f.type)&&
+      (!f.company_only||(t.transaction_type==='EXPENSE'&&t.expense_owner==='COMPANY')||
+        (t.transaction_type==='INCOME'&&(!!t.company_kind||cm[String(t.category_id)]==='เงินคืนบริษัท')))&&
       (!f.owner||t.expense_owner===f.owner)&&(!f.account_id||t.account_id===f.account_id||t.to_account_id===f.account_id)&&
       (!f.category_id||t.category_id===f.category_id)&&(!f.query||String(t.description||"").toLocaleLowerCase().includes(String(f.query).toLocaleLowerCase())))
     .sort((a,b)=>String(b.transaction_date).localeCompare(String(a.transaction_date))||String(b.created_at).localeCompare(String(a.created_at)))
