@@ -688,10 +688,11 @@ function renderDebts(items) {
   $('debtDueTotal').textContent = money(items.reduce((sum, item) => sum + Number(item.due_amount || 0), 0));
   const [year, month] = String(BOOT?.today || '').slice(0, 7).split('-').map(Number);
   $('debtDueMonth').textContent = MONTH_FULL[month - 1] ? `${MONTH_FULL[month - 1]} ${year + 543}` : '';
-  const unplanned = items.filter(item => item.needs_due).length;
+  const outstandingDebts=items.filter(item=>Math.round(Number(item.balance||0)*100)>0);
+  const unplanned = outstandingDebts.filter(item => item.needs_due).length;
   $('debtPlanWarning').textContent = unplanned ? `มีหนี้ ${unplanned} รายการที่ยังไม่กำหนดยอดจ่ายเดือนนี้` : '';
   $('debtPlanWarning').classList.toggle('hidden', !unplanned);
-  $('debtList').innerHTML = items.length ? items.map(item => `<div class="debt-item">
+  $('debtList').innerHTML = outstandingDebts.length ? outstandingDebts.map(item => `<div class="debt-item">
     <div class="list-row"><div class="row-main">${debtIcon(item.debt_name)}<div class="row-copy"><div class="debt-title-line"><div class="row-title">${esc(item.debt_name)}</div><button class="debt-rename" data-debt="${esc(item.debt_id)}" data-action="rename" aria-label="แก้ชื่อ ${esc(item.debt_name)}">แก้ชื่อ</button></div>
       <div class="row-sub">ครบกำหนด ${dateTH(item.due_date)}</div>
       ${item.needs_due ? '<div class="row-sub">ยังไม่กำหนดยอดจ่ายเดือนนี้</div>' : ''}
@@ -700,7 +701,7 @@ function renderDebts(items) {
     <div class="inline-actions"><button class="secondary" data-debt="${esc(item.debt_id)}" data-action="increase">เพิ่มหนี้</button>
       <button class="secondary" data-debt="${esc(item.debt_id)}" data-action="adjust">ปรับยอดหนี้</button>
       <button class="secondary" data-debt="${esc(item.debt_id)}" data-action="due">ยอดเดือนนี้</button>
-      <button class="primary" data-debt="${esc(item.debt_id)}" data-action="pay">ชำระหนี้</button></div></div>`).join('') : '<div class="empty">ยังไม่มีหนี้ เพิ่ม Shopee, LINE BK, TikTok หรือเจ้าหนี้อื่นได้</div>';
+      <button class="primary" data-debt="${esc(item.debt_id)}" data-action="pay">ชำระหนี้</button></div></div>`).join('') : '<div class="empty">ไม่มีหนี้คงเหลือแล้ว<br>ประวัติหนี้และรายการชำระยังเก็บไว้ตามเดิม</div>';
 }
 function renderRecurring(items) {
   $('recurringList').innerHTML = items.length ? items.map(item => `<div class="list-row">

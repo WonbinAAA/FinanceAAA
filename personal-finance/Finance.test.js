@@ -1151,6 +1151,33 @@ async function testTransactionPeriodAndCompanyHistoryUI() {
   console.log('PASS Period modes ignore hidden dates, reject reversed ranges and discard stale results; paid claims stay in company history');
 }
 
+function testPaidDebtsHiddenButHistoryKept() {
+  const source=fs.readFileSync('JavaScript.html','utf8');
+  const body=source.slice(source.indexOf('<script>')+8,source.indexOf("document.addEventListener('click'"));
+  const elements={},element=id=>elements[id] ||= {innerHTML:'',textContent:'',classList:{toggle(){},add(){},remove(){}}};
+  const ui=vm.createContext({console,window:{},document:{getElementById:element},setTimeout,clearTimeout});
+  vm.runInContext(body,ui);vm.runInContext("BOOT={today:'2026-11-01'}",ui);
+  const debts=[
+    {debt_id:'CLOSED',debt_name:'จ่ายครบแล้ว',balance:0,due_amount:0,due_date:'2026-11-01'},
+    {debt_id:'PAID-MONTH',debt_name:'เดือนนี้จ่ายแล้วแต่ยังมีหนี้',balance:300,due_amount:0,due_date:'2026-11-01'},
+    {debt_id:'OPEN',debt_name:'ยังค้างจ่าย',balance:500,due_amount:100,due_date:'2026-11-01'}
+  ];
+  const snapshot=JSON.stringify(debts);
+  ui.renderDebts(debts);
+  assert.doesNotMatch(element('debtList').innerHTML,/จ่ายครบแล้ว|data-debt="CLOSED"/);
+  assert.match(element('debtList').innerHTML,/เดือนนี้จ่ายแล้วแต่ยังมีหนี้/);
+  assert.match(element('debtList').innerHTML,/ยังค้างจ่าย/);
+  assert.match(element('debtTotal').textContent,/800\.00/);
+  assert.match(element('debtDueTotal').textContent,/100\.00/);
+  assert.equal(JSON.stringify(debts),snapshot);
+  ui.renderDebts([debts[0]]);
+  assert.match(element('debtList').innerHTML,/ไม่มีหนี้คงเหลือ/);
+  assert.match(element('debtList').innerHTML,/ประวัติหนี้และรายการชำระยังเก็บไว้/);
+  ui.renderDebts([{...debts[0],balance:20}]);
+  assert.match(element('debtList').innerHTML,/data-debt="CLOSED"/);
+  console.log('PASS Zero-balance debts hide without removing history; monthly-paid debts with a balance remain and reopened balances reappear');
+}
+
 function testTodayExpenseTotals() {
   const snapshots=Object.fromEntries(Object.entries(sheets).map(([name,sheet])=>[name,sheet.data.map(row=>row.slice())]));
   const originalToday=context.today_;
@@ -1245,6 +1272,7 @@ async function testTodayExpenseCardUI() {
 }
 
 testFrontendSaveNavigation().then(testRefundFormRecovery).then(testCompanyConsentUI).then(testProjectManagerUI).then(testTransactionPeriodAndCompanyHistoryUI).then(testTodayExpenseCardUI).then(()=>{
+  testPaidDebtsHiddenButHistoryKept();
   testTodayExpenseTotals();
   testTransactionDateRangesAndCompanyHistory();
   testMutationSnapshotRendering();
