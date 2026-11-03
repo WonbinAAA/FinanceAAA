@@ -1,0 +1,7 @@
+.cloud-banner{display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;padding:8px 14px;background:#edeaff;color:#493b8e;font-size:12px}
+.cloud-banner a{color:inherit}.cloud-banner button{border:0;border-radius:8px;padding:5px 10px;background:white;color:#493b8e;cursor:pointer}
+.cloud-add-account{display:block;margin:12px auto 100px}
+#cloudAccountDialog label{display:flex;flex-direction:column;gap:6px;margin:12px 0}#cloudAccountDialog label:has(input[type=checkbox]){flex-direction:row}
+.cloud-page{font-family:system-ui,sans-serif;background:#f6f7fc;color:#242440;margin:0;padding:32px 18px}.cloud-panel{max-width:760px;background:white;border:1px solid #e7e5f2;border-radius:22px;padding:28px;margin:24px auto;box-shadow:0 14px 45px #302b6a0b}
+.cloud-page h1{font-size:26px}.cloud-page p{line-height:1.7}.cloud-page button,.cloud-page .button{display:inline-block;padding:12px 18px;border:0;border-radius:12px;background:#6557e9;color:white;font:inherit;text-decoration:none;cursor:pointer;margin:8px 4px 8px 0}.cloud-page button:disabled{opacity:.45;cursor:default}.cloud-page input{box-sizing:border-box;max-width:100%;padding:10px;border:1px solid #dcd8ef;border-radius:10px}.cloud-page pre{white-space:pre-wrap;word-break:break-word;background:#f8f7fc;padding:16px;border-radius:12px;max-height:500px;overflow:auto}.cloud-page .muted{color:#62627a}.cloud-page .danger{color:#9c3b32}
+@media(max-width:480px){.cloud-panel{padding:20px}.cloud-page{padding:12px}}

@@ -1,0 +1,17 @@
+{
+  "name": "finance-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --ip 127.0.0.1",
+    "build": "node scripts/check-release.mjs && wrangler deploy --dry-run --outdir .build",
+    "test": "node --test test/*.test.js",
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "deploy": "node scripts/check-release.mjs --deploy && wrangler deploy --config wrangler.deploy.json",
+    "import:check": "node scripts/import-sheets.mjs",
+    "sync:repository": "node scripts/sync-repository.mjs"
+  },
+  "engines": { "node": ">=22.13.0" },
+  "devDependencies": { "wrangler": "4.157.0" }
+}

@@ -1,0 +1,7 @@
+# Copy to .dev.vars locally. Never commit .dev.vars.
+APP_ORIGIN=http://127.0.0.1:8787
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+ALLOWED_EMAIL=
+# Development login is only accepted on localhost AND APP_ENV=local.
+LOCAL_DEV_LOGIN=false
