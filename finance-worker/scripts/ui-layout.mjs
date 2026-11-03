@@ -9,7 +9,6 @@ export function applyLayoutHtml(html) {
     <a class="finance-brand" href="#pageDashboard" onclick="showPage('Dashboard');return false"><span class="finance-brand-mark">${icon('wallet')}</span><span><strong>สมุดการเงิน</strong><small>รายรับ รายจ่าย และเงินบริษัท</small></span></a>
     <p class="finance-nav-caption">พื้นที่ทำงานของคุณ</p>
     <nav aria-label="หน้าต่าง ๆ">${pages.map(([page,symbol,label])=>`<button type="button" data-page="${page}" ${page==='Dashboard'?'class="active" aria-current="page"':''} onclick="showPage('${page}')">${icon(symbol)}<span>${label}</span><i aria-hidden="true"></i></button>`).join('\n')}</nav>
-    <div class="finance-sidebar-bottom"><span class="finance-sidebar-caption">${icon('wallet')}<b>ทุกยอดเงิน อยู่ในที่เดียว</b></span><p>ติดตามเงินส่วนตัว เงินบริษัท<br>และรายการที่ต้องจ่าย</p><a class="finance-backup-link" href="/migration">นำเข้าและสำรองข้อมูล <span aria-hidden="true">↗</span></a></div>
   </aside>`;
   html = html.replace('<main class="app">', sidebar+'\n<main class="app">');
   html = html.replace('<div class="topbar-title"><h1>รายรับ-รายจ่ายของฉัน</h1></div>', `<div class="topbar-title"><span class="finance-mobile-mark">${icon('wallet')}</span><div><h1>รายรับ-รายจ่ายของฉัน</h1><span id="layoutPageName" class="finance-page-name">ภาพรวมการเงิน</span></div></div>`);
@@ -22,6 +21,8 @@ export function applyLayoutHtml(html) {
 function refineWorkspaceHtml(html) {
   // Remove the exact top strip requested by the owner. Backup remains in the menu.
   html = html.replace(/<div class="cloud-banner">[\s\S]*?<\/div>\s*/, '');
+  html = html.replace(/<div id="cloudDebt(?:Page)?Warning"[^>]*><\/div>\s*/g, '');
+  html = html.replace(/<div class="finance-sidebar-bottom">[\s\S]*?<\/div>\s*/, '');
   if (!html.includes('id="financeOverview"')) {
     html = html.replace('<section class="hero card">', '<div id="financeOverview" class="finance-overview">\n<section class="hero card">');
     html = html.replace('    <section class="summary-grid">', '    </div>\n<section class="summary-grid">');
