@@ -633,21 +633,7 @@ async function toggleAccountAvailable(id) {
     notify('success','อัปเดตบัญชีเงินพร้อมใช้แล้ว');
   } catch(error) { fail(error); }
 }
-function transactionRow(item) {
-  const internal = ['MOVE','SELF_ALLOWANCE'].includes(item.company_kind);
-  const sign = internal ? '' : item.transaction_type === 'INCOME' ? '+' : item.transaction_type === 'EXPENSE' ? '−' : '';
-  const kind = item.transaction_type === 'INCOME' ? 'income' : item.transaction_type === 'EXPENSE' ? 'expense' : 'transfer';
-  const company = kind === 'expense' && item.expense_owner === 'COMPANY';
-  const ownerText = kind === 'expense' ? ` · ${company ? 'บริษัท' : 'ส่วนตัว'}` : '';
-  const label = {ADVANCE:'รับเงินบริษัทล่วงหน้า',RETURN:'คืนเงินล่วงหน้าบริษัท',MOVE:'ย้ายเงินระหว่างกอง',SELF_ALLOWANCE:'เบี้ยเลี้ยงให้ตัวเอง',OTHER_ALLOWANCE:'เบี้ยเลี้ยงให้คนอื่น',MIXED_RECEIPT:'รับเงินบริษัท · คืนยอดและกองกลาง'}[item.company_kind] || item.category_name || (item.transaction_type === 'TRANSFER' ? 'โอนเงิน' : item.description || item.transaction_type);
-  const badge = item.status === 'VOID' || item.status === 'DRAFT'
-    ? `<span class="badge ${item.status.toLowerCase()}">${STATUS_LABEL[item.status]}</span>` : '';
-  return `<button class="list-row transaction-row ${item.status === 'VOID' ? 'is-void' : ''}" data-id="${esc(item.transaction_id)}">
-    <div class="row-main"><span class="row-icon ${kind}${company ? ' company' : ''}"><svg class="icon"><use href="#icon-${kind}"></use></svg></span>
-    <div class="row-copy"><div class="row-title">${esc(label)} ${badge}</div><div class="row-sub">${dateTH(item.transaction_date)} · ${esc(accountDisplayName(item.account_name))}${ownerText}</div>
-    ${item.description && item.description !== label ? `<div class="row-sub">${esc(item.description)}</div>` : ''}</div></div>
-    <div class="row-value ${kind}${company ? ' company' : ''}">${sign}${money(item.amount)}</div></button>`;
-}
+function transactionRow(item) { return renderLedgerRow(item, {compact:true}); }
 function renderLatest(items) {
   $('latestList').innerHTML = items.length ? items.map(transactionRow).join('') : '<div class="empty">ยังไม่มีรายการ</div>';
 }
@@ -669,7 +655,7 @@ function renderCompany(data) {
     <div class="row-sub">${dateTH(item.expense_date)} · ใช้เงินล่วงหน้า ${money(item.advance_used || 0)} · คืนแล้ว ${money(item.returned_amount)}</div></div>
     <div class="row-value company-claim-amount"><small>${Number(item.remaining_amount)>0?'ค้างคืน':'คืนครบแล้ว'}</small>${money(item.remaining_amount)}</div></div>`).join('') : '<div class="empty">ยังไม่มีรายการบริษัทค้างคืน</div>';
   const companyTransactions=data.transactions||[];
-  $('companyTransactionList').innerHTML=companyTransactions.length?companyTransactions.map(transactionRow).join(''):
+  $('companyTransactionList').innerHTML=companyTransactions.length?renderLedgerDays(companyTransactions):
     '<div class="empty">ยังไม่มีรายการรับ–จ่ายบริษัท</div>';
 }
 function debtIcon(name) {
@@ -777,7 +763,7 @@ async function loadTransactions() {
     const items = await server('getTransactions', filters);
     if (request !== transactionRequest) return;
     $('transactionCount').textContent = items.length + ' รายการตามตัวกรอง';
-    $('transactionList').innerHTML = items.length ? items.map(transactionRow).join('') : '<div class="empty">ไม่พบรายการ</div>';
+    $('transactionList').innerHTML = items.length ? renderLedgerDays(items) : '<div class="empty">ไม่พบรายการ</div>';
   } catch (error) { if (request === transactionRequest) fail(error); }
 }
 function showPage(name) {
