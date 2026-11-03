@@ -22,7 +22,7 @@ async function cloudRequest(path, body, key) {
     body: JSON.stringify(body) });
   if (response.status === 401) { location.assign('/login'); throw new Error('กรุณาเข้าสู่ระบบใหม่'); }
   const data = await response.json();
-  if (!response.ok) { const error = new Error(data.error || 'ดำเนินการไม่สำเร็จ'); error.code = data.code; error.serverResponse = true; throw error; }
+  if (!response.ok) { const error = new Error(data.error || 'ดำเนินการไม่สำเร็จ'); error.code = data.code; error.status = response.status; error.serverResponse = true; throw error; }
   return data;
 }
 window.financeRpc = async function(method, args) {
@@ -47,7 +47,7 @@ window.financeRpc = async function(method, args) {
     cloudNotice(result);
     return result;
   } catch (error) {
-    if (error.serverResponse) { cloudPending.delete(digest); try { sessionStorage.removeItem(storageKey); } catch {} }
+    if (error.serverResponse && error.status < 500) { cloudPending.delete(digest); try { sessionStorage.removeItem(storageKey); } catch {} }
     else if (writing) error.message = 'ยังยืนยันผลบันทึกไม่ได้ กรุณาลองคำขอเดิมอีกครั้ง ระบบจะใช้รหัสเดิมป้องกันรายการซ้ำ';
     throw error;
   }
