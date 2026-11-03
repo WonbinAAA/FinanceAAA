@@ -3,6 +3,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { applyLayoutHtml, applyLayoutJavaScript } from './ui-layout.mjs';
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const source = path.resolve(root, '../.publish/FinanceAAA/personal-finance');
 const read = name => readFile(path.join(source, name), 'utf8');
@@ -75,6 +76,6 @@ js = js.replace("debt_id: selectedDebtId, balance: $('debtAdjustedBalance').valu
 js = js.replace("else result = await server('payDebt', { debt_id: selectedDebtId, amount: $('debtAmount').value,", "else result = await server('payDebt', { debt_id: selectedDebtId, amount: $('debtAmount').value, principal_amount: $('debtPaidPrincipal').value, interest_amount: $('debtPaidInterest').value, fee_amount: $('debtPaidFees').value, statement_reference: $('debtPaymentReference').value,");
 // Cloud transport must load before the legacy app's immediate bootstrap request.
 html = html.replace('<script src="/app.js"></script>\n<script src="/cloud.js"></script>', '<script src="/cloud.js"></script>\n<script src="/app.js"></script>');
-await writeFile(path.join(root, 'public/index.html'), html);
-await writeFile(path.join(root, 'public/app.js'), js);
+await writeFile(path.join(root, 'public/index.html'), applyLayoutHtml(html));
+await writeFile(path.join(root, 'public/app.js'), applyLayoutJavaScript(js));
 console.log('Ported public v53 source into finance-worker only.');

@@ -783,7 +783,12 @@ async function loadTransactions() {
 function showPage(name) {
   if (name !== 'Dashboard' && !requireFreshData()) return;
   document.querySelectorAll('.page').forEach(page => page.classList.toggle('hidden', page.id !== 'page' + name));
-  document.querySelectorAll('.bottom-nav button[data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === name));
+  document.querySelectorAll('.bottom-nav button[data-page], .finance-sidebar button[data-page]').forEach(button => {
+    const current = button.dataset.page === name;
+    button.classList.toggle('active', current);
+    if (current) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+  });
+  if ($('layoutPageName')) $('layoutPageName').textContent = ({Dashboard:'ภาพรวมการเงิน',Transactions:'รายการทั้งหมด',Company:'เงินบริษัท',Debt:'หนี้',Recurring:'รายการประจำ'})[name] || '';
   $('recurringShortcut').classList.toggle('active', name === 'Recurring');
   if (name === 'Transactions') loadTransactions();
   window.scrollTo(0, 0);

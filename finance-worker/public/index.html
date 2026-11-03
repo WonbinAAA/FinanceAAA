@@ -6,6 +6,7 @@
   <title>รายรับ-รายจ่ายของฉัน</title>
   <link rel="stylesheet" href="/styles.css">
 <link rel="stylesheet" href="/cloud.css">
+<link rel="stylesheet" href="/workspace.css">
 </head>
 <body>
 <div class="cloud-banner"><span id="cloudAccessNote">ระบบใหม่ · Cloudflare + D1</span><a href="/migration">นำเข้า / ตรวจยอด</a><button id="cloudLogoutButton" onclick="cloudLogout()" hidden>ออกจากระบบ</button></div>
@@ -28,15 +29,26 @@
     <symbol id="icon-cash" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M5 9h1m12 6h1"/></symbol>
   </svg>
   <div id="toast" class="toast"></div>
-  <main class="app">
+  <aside id="financeSidebar" class="finance-sidebar" aria-label="เมนูการเงิน">
+    <a class="finance-brand" href="#pageDashboard" onclick="showPage('Dashboard');return false"><span class="finance-brand-mark"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg></span><span><strong>สมุดการเงิน</strong><small>รายรับ รายจ่าย และเงินบริษัท</small></span></a>
+    <p class="finance-nav-caption">พื้นที่ทำงานของคุณ</p>
+    <nav aria-label="หน้าต่าง ๆ"><button type="button" data-page="Dashboard" class="active" aria-current="page" onclick="showPage('Dashboard')"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span>หน้าหลัก</span><i aria-hidden="true"></i></button>
+<button type="button" data-page="Transactions"  onclick="showPage('Transactions')"><svg class="icon" aria-hidden="true"><use href="#icon-list"></use></svg><span>รายการ</span><i aria-hidden="true"></i></button>
+<button type="button" data-page="Company"  onclick="showPage('Company')"><svg class="icon" aria-hidden="true"><use href="#icon-company"></use></svg><span>บริษัท</span><i aria-hidden="true"></i></button>
+<button type="button" data-page="Debt"  onclick="showPage('Debt')"><svg class="icon" aria-hidden="true"><use href="#icon-debt"></use></svg><span>หนี้</span><i aria-hidden="true"></i></button>
+<button type="button" data-page="Recurring"  onclick="showPage('Recurring')"><svg class="icon" aria-hidden="true"><use href="#icon-repeat"></use></svg><span>รายการประจำ</span><i aria-hidden="true"></i></button></nav>
+    <div class="finance-sidebar-bottom"><span class="finance-sidebar-caption"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg><b>ทุกยอดเงิน อยู่ในที่เดียว</b></span><p>ติดตามเงินส่วนตัว เงินบริษัท<br>และรายการที่ต้องจ่าย</p><a class="finance-backup-link" href="/migration">นำเข้าและสำรองข้อมูล <span aria-hidden="true">↗</span></a></div>
+  </aside>
+<main class="app">
     <header class="topbar">
-      <div class="topbar-title"><h1>รายรับ-รายจ่ายของฉัน</h1></div>
-      <div class="topbar-actions"><div id="currentMonth" class="month-pill">เดือนปัจจุบัน</div><button id="recurringShortcut" class="recurring-shortcut" onclick="showPage('Recurring')"><svg class="icon"><use href="#icon-repeat"></use></svg> รายการประจำ</button><button class="help-trigger" onclick="openHelp()" aria-label="เปิดคู่มือวิธีใช้">? วิธีใช้</button></div>
+      <div class="topbar-title"><span class="finance-mobile-mark"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg></span><div><h1>รายรับ-รายจ่ายของฉัน</h1><span id="layoutPageName" class="finance-page-name">ภาพรวมการเงิน</span></div></div>
+      <div class="topbar-actions"><button type="button" class="finance-desktop-add" onclick="openEntryDialog()"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>เพิ่มรายการ</span></button><div id="currentMonth" class="month-pill">เดือนปัจจุบัน</div><button id="recurringShortcut" class="recurring-shortcut" onclick="showPage('Recurring')"><svg class="icon"><use href="#icon-repeat"></use></svg> รายการประจำ</button><button class="help-trigger" onclick="openHelp()" aria-label="เปิดคู่มือวิธีใช้">? วิธีใช้</button></div>
     </header>
 
     <section id="connectionError" class="connection-error hidden" role="alert"></section>
     <div id="syncStatus" class="sync-status" data-cache="miss" role="status" aria-live="polite">กำลังโหลดข้อมูลล่าสุด...</div>
     <div id="pageDashboard" class="page">
+<div class="finance-dashboard-heading"><div><h2>ภาพรวมการเงิน</h2><p>ยอดเงิน บัญชี และรายการล่าสุดของคุณ</p></div><span class="finance-heading-label">สมุดการเงินของฉัน</span></div>
 <div id="cloudSetup" class="card section-card hidden"><h3>เริ่มฐานข้อมูลใหม่</h3><p>เพิ่มบัญชีโดยระบุยอดเริ่มต้นและวันที่เอง ระบบยังไม่ได้นำประวัติจากเว็บเดิมมาใช้</p><button class="primary" onclick="openCloudAccount()">เพิ่มบัญชี</button></div>
 <div id="cloudDebtWarning" class="info hidden" role="status"></div>
 
@@ -154,7 +166,7 @@
     </section>
   </main>
 
-  <nav class="bottom-nav">
+  <nav class="bottom-nav" aria-label="เมนูหลักบนมือถือ">
     <button data-page="Dashboard" class="active" onclick="showPage('Dashboard')"><svg class="icon"><use href="#icon-home"></use></svg><span>หน้าหลัก</span></button>
     <button data-page="Transactions" onclick="showPage('Transactions')"><svg class="icon"><use href="#icon-list"></use></svg><span>รายการ</span></button>
     <button class="add" aria-label="เพิ่มรายการ" onclick="openEntryDialog()"><svg class="icon"><use href="#icon-plus"></use></svg></button>
