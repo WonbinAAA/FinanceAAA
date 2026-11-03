@@ -17,8 +17,8 @@ try {
     throw error;
   });
   assert.equal(new URL(page.url()).pathname, '/');
-  assert.match(await page.locator('#cloudAccessNote').textContent(), /เว็บสาธารณะ/);
-  assert.equal(await page.locator('#cloudLogoutButton').isVisible(), false);
+  assert.equal(await page.locator('.cloud-banner').count(), 0);
+  assert.equal(await page.locator('#financeOverview').count(), 1);
   const starting = await page.evaluate(async () => (await window.financeRpc('getDashboard', [])).available_cash);
   const formatted = value => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   await page.getByRole('button', { name: 'จัดการ', exact: true }).click();
