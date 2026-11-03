@@ -28,7 +28,7 @@ if (process.argv.includes('--deploy')) {
   if (url.protocol !== 'https:' || url.origin !== appOrigin || !url.hostname.endsWith('.workers.dev'))
     throw new Error('Set FINANCE_APP_ORIGIN to the approved HTTPS workers.dev preview origin');
   const config = JSON.parse(await readFile(path.join(root, 'wrangler.jsonc'), 'utf8'));
-  config.vars = { APP_ENV: 'preview', APP_ORIGIN: appOrigin, DEBT_PAYMENTS_ENABLED: 'true' };
+  config.vars = { APP_ID: 'finance-aaa-preview', APP_ENV: 'preview', APP_ORIGIN: appOrigin, DEBT_PAYMENTS_ENABLED: 'true' };
   config.d1_databases[0].database_id = databaseId;
   await writeFile(path.join(root, 'wrangler.deploy.json'), JSON.stringify(config, null, 2) + '\n');
 }

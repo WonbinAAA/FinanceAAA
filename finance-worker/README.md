@@ -27,14 +27,14 @@ npm run build
 
 ## เชื่อม Cloudflare และ GitHub
 
-1. เข้าบัญชี Cloudflare ของเจ้าของด้วย `npx wrangler login` ไม่ใช้ temporary account
-2. สร้าง D1 สำหรับระบบทดสอบโดยเฉพาะด้วย `npx wrangler d1 create finance-aaa-preview` ห้ามใช้ฐานระบบอื่น ค่าตั้งต้นใน `wrangler.jsonc` เป็น placeholder ใช้สำหรับ local เท่านั้น
-3. กำหนด build variables `FINANCE_D1_DATABASE_ID` เป็น ID ฐานใหม่ และ `FINANCE_APP_ORIGIN` เป็นที่อยู่ `https://finance-aaa-preview.<subdomain>.workers.dev` จริง ไม่มี slash ท้าย ค่าทั้งสองไม่ใช่ password/token
-4. ตั้ง Google Cloud OAuth client แบบ Web application โดยมี Authorized redirect URI เป็น `<FINANCE_APP_ORIGIN>/auth/callback` ใช้ scope `openid email` เพื่อเข้าสู่ระบบ ไม่ขอสิทธิ์อ่าน Sheets/Drive
-5. ตั้ง runtime secrets ใน Worker: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAIL` (อีเมลเจ้าของเพียงหนึ่งบัญชี) ใส่ผ่าน Cloudflare dashboard หรือ `wrangler secret put` ห้ามใส่ในซอร์ส, build logs, GitHub, แชท หรือไฟล์สาธารณะ
-6. สร้าง config สำหรับ deploy ด้วย `node scripts/check-release.mjs --deploy` แล้ว apply schema เฉพาะฐานใหม่: `npx wrangler d1 migrations apply DB --remote --config wrangler.deploy.json` ตรวจชื่อฐานก่อนยืนยัน
-7. Deploy: `npm run deploy` ระบบสร้าง `wrangler.deploy.json` ในเครื่อง/ใน build และเปิดโหมด preview ที่ไม่รองรับ local login
-8. ใน Worker > Settings > Builds เชื่อม GitHub repository `WonbinAAA/FinanceAAA` โดยให้ root directory = `finance-worker`, build command = `npm test && npm run build`, deploy command = `npm run deploy`, production branch = branch ของระบบใหม่ และ watch path = `finance-worker/**` ระหว่างพัฒนา ไม่เปลี่ยนการตั้งค่า GitHub Pages เดิม
+1. ใน Cloudflare Workers & Pages เลือก Create application → Connect GitHub และให้ GitHub App เข้าถึงเฉพาะ `WonbinAAA/FinanceAAA` เจ้าของดำเนินการยืนยันตัวตน/อนุญาตสิทธิ์ในหน้า GitHub เอง
+2. ตั้ง Worker name = `finance-aaa-preview`, branch = `cloudflare-d1`, root directory = `finance-worker`, build command = `npm test && npm run build`, deploy command = `npm run deploy` และ watch path = `finance-worker/**` คง GitHub Pages บน branch เดิม
+3. ใช้ D1 ใหม่ชื่อ `finance-aaa-preview` สำหรับระบบทดสอบโดยเฉพาะ กำหนด build variables `FINANCE_D1_DATABASE_ID` เป็น ID ฐานนี้ และ `FINANCE_APP_ORIGIN` เป็น `https://finance-aaa-preview.<subdomain>.workers.dev` จริง ไม่มี slash ท้าย ค่าทั้งสองไม่ใช่ password/token
+4. Schema ต้องถูก apply เฉพาะฐานใหม่ก่อนเข้าใช้งาน ในเครื่องทำได้ด้วย `node scripts/check-release.mjs --deploy` แล้ว `npx wrangler d1 migrations apply DB --remote --config wrangler.deploy.json` ตรวจชื่อฐานก่อนยืนยัน ค่าตั้งต้นใน `wrangler.jsonc` เป็น placeholder สำหรับ local เท่านั้น
+5. Cloudflare Builds เรียก `npm run deploy` ซึ่งสร้าง `wrangler.deploy.json` ระหว่าง build และเปิดโหมด preview ที่ไม่รองรับ local login
+6. สร้าง Google OAuth client แบบ Web application และตั้ง runtime secrets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAIL` ใน Worker ดู [คู่มือตั้ง Google login](GOOGLE-LOGIN-SETUP.md)
+
+การ deploy ผ่าน GitHub ไม่ต้องเข้าสู่ Wrangler ในเครื่องทุกครั้ง หากต้องใช้ CLI เพื่อดูแลฐานหรือ deploy โดยตรงภายหลัง ให้เชื่อมบัญชี Cloudflare ของเจ้าของในครั้งที่จำเป็นด้วย `npx wrangler login` และใช้ config สำหรับฐาน preview ที่เตรียมไว้
 
 Build variables กับ runtime secrets เป็นคนละส่วน Cloudflare Builds ต้องได้สอง build variables ข้างต้น ส่วน Google secret และอีเมลอยู่ที่ Variables & Secrets ของ Worker ไม่พิมพ์ลง log ไม่มีการใช้ GitHub Actions token เพื่อ deploy โดยอัตโนมัติ
 
@@ -50,7 +50,7 @@ Build variables กับ runtime secrets เป็นคนละส่วน C
 - LINE/OCR/n8n เดิมยังไม่เชื่อมกับ Worker ใหม่ ไม่เปลี่ยน webhook หรือเปิดงานอัตโนมัติ
 - ยังไม่เชื่อม Google OAuth/Cloudflare จริงจนกว่าเจ้าของยืนยันสิทธิ์และตั้ง credentials เสร็จ การผ่าน local test ไม่ใช่การยืนยัน production
 
-ดู [แผนย้ายข้อมูล](MIGRATION.md) และ [กฎหนี้](DEBT-REVIEW.md)
+ดู [แผนย้ายข้อมูล](MIGRATION.md), [กฎหนี้](DEBT-REVIEW.md) และ [ตั้ง Google login](GOOGLE-LOGIN-SETUP.md)
 
 ## โฟลเดอร์งานกับ Git
 

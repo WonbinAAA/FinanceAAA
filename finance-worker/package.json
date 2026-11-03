@@ -9,6 +9,7 @@
     "test": "node --test test/*.test.js",
     "db:local": "wrangler d1 migrations apply DB --local",
     "deploy": "node scripts/check-release.mjs --deploy && wrangler deploy --config wrangler.deploy.json",
+    "deploy:actions": "node scripts/deploy-cloudflare.mjs",
     "import:check": "node scripts/import-sheets.mjs",
     "sync:repository": "node scripts/sync-repository.mjs"
   },

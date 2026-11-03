@@ -11,6 +11,7 @@
     "run_worker_first": true
   },
   "vars": {
+    "APP_ID": "finance-aaa-preview",
     "APP_ENV": "local",
     "DEBT_PAYMENTS_ENABLED": "true"
   },
