@@ -4,7 +4,7 @@ import { validateDeployTarget } from '../scripts/deployment-plan.mjs';
 
 const id = '11111111-2222-4333-8444-555555555555';
 const env = { CLOUDFLARE_ACCOUNT_ID: '1'.repeat(32), CLOUDFLARE_API_TOKEN: 'synthetic-credential' };
-const config = () => ({ name: 'finance-aaa-preview', vars: { APP_ID: 'finance-aaa-preview', APP_ENV: 'preview',
+const config = () => ({ name: 'finance-aaa-preview', vars: { APP_ID: 'finance-aaa-preview', AUTH_MODE: 'public', APP_ENV: 'preview',
   APP_ORIGIN: 'https://finance-aaa-preview.example.workers.dev' }, d1_databases: [{ binding: 'DB', database_name: 'finance-aaa-preview', database_id: id }] });
 function fake(worker, database = { uuid: id, name: 'finance-aaa-preview' }) {
   return async url => url.includes('/d1/database/') ? Response.json({ success: true, result: database })

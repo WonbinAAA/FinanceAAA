@@ -38,7 +38,7 @@ await writeFile(path.join(root, 'src/legacy-engine.js'), result);
 let html = await read('Index.html');
 html = html.replace("<?!= include('CSS'); ?>", '<link rel="stylesheet" href="/styles.css">\n<link rel="stylesheet" href="/cloud.css">');
 html = html.replace("<?!= include('JavaScript'); ?>", '<script src="/app.js"></script>\n<script src="/cloud.js"></script>');
-html = html.replace('<body>', `<body>\n<div class="cloud-banner">ระบบใหม่ · Cloudflare + D1 <a href="/migration">นำเข้า / ตรวจยอด</a><button onclick="cloudLogout()">ออกจากระบบ</button></div>`);
+html = html.replace('<body>', `<body>\n<div class="cloud-banner"><span id="cloudAccessNote">ระบบใหม่ · Cloudflare + D1</span><a href="/migration">นำเข้า / ตรวจยอด</a><button id="cloudLogoutButton" onclick="cloudLogout()" hidden>ออกจากระบบ</button></div>`);
 html = html.replace('<div id="pageDashboard" class="page">', `<div id="pageDashboard" class="page">\n<div id="cloudSetup" class="card section-card hidden"><h3>เริ่มฐานข้อมูลใหม่</h3><p>เพิ่มบัญชีโดยระบุยอดเริ่มต้นและวันที่เอง ระบบยังไม่ได้นำประวัติจากเว็บเดิมมาใช้</p><button class="primary" onclick="openCloudAccount()">เพิ่มบัญชี</button></div>\n<div id="cloudDebtWarning" class="info hidden" role="status"></div>`);
 html = html.replace('<div id="accountSettingsList" class="list"></div>', '<div id="accountSettingsList" class="list"></div><button class="primary wide" onclick="cancelDialog(\'accountSettingsDialog\');openCloudAccount()">+ เพิ่มบัญชี</button>');
 html = html.replace('<div id="debtPlanWarning"', '<div id="cloudDebtPageWarning" class="info hidden" role="status"></div><div id="debtPlanWarning"');

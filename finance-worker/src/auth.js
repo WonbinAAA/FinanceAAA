@@ -8,6 +8,7 @@ export const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)
 export const randomToken = () => b64url(crypto.getRandomValues(new Uint8Array(32)));
 export const sha256 = async text => b64url(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
 const now = () => Math.floor(Date.now() / 1000);
+export const publicAccess = env => env.AUTH_MODE === 'public';
 function origin(env) {
   try {
     const url = new URL(env.APP_ORIGIN);
@@ -40,6 +41,8 @@ export async function session(request, env) {
   const row = await env.DB.prepare('SELECT * FROM auth_sessions WHERE token_hash = ? AND expires_at > ?')
     .bind(await sha256(token), now()).first();
   if (!row) return null;
+  if (row.google_sub === 'public-access') return publicAccess(env) ? row : null;
+  if (publicAccess(env)) return null;
   // Changing ALLOWED_EMAIL revokes previously allowed identities immediately.
   if (row.google_sub !== 'local-development' && row.email.toLowerCase() !== String(env.ALLOWED_EMAIL || '').trim().toLowerCase()) return null;
   if (row.google_sub === 'local-development' && !localEnabled(request, env)) return null;
@@ -63,6 +66,15 @@ async function makeSession(env, sub, email) {
       .bind(await sha256(token), sub, email, csrf, now() + SESSION_AGE),
   ]);
   return { token, csrf };
+}
+export async function publicSessionResponse(request, env) {
+  if (!publicAccess(env)) throw new AppError('ไม่พบหน้านี้', 404);
+  const current = await session(request, env);
+  if (current) return json({ ok: true, csrf_token: current.csrf_token, public_access: true, development: false });
+  const created = await makeSession(env, 'public-access', '');
+  const response = json({ ok: true, csrf_token: created.csrf, public_access: true, development: false });
+  response.headers.set('Set-Cookie', cookie(env, cookieName(env), created.token, SESSION_AGE));
+  return response;
 }
 function decodePart(part) {
   return Uint8Array.from(atob(part.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0));
@@ -98,6 +110,7 @@ export async function verifyGoogleIdToken(token, env, nonce, fetcher = fetch) {
 export async function authRoute(request, env) {
   const url = new URL(request.url);
   if (url.origin !== origin(env).origin) throw new AppError('ที่อยู่เว็บไม่ตรงกับการตั้งค่า', 403);
+  if (publicAccess(env) && url.pathname !== '/auth/logout') throw new AppError('ไม่พบหน้านี้', 404);
   if (url.pathname === '/auth/google' && request.method === 'GET') {
     requireConfig(env);
     const state = randomToken(), verifier = randomToken(), nonce = randomToken();

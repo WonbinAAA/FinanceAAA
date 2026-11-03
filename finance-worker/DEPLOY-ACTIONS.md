@@ -4,7 +4,7 @@
 
 ## การตั้งค่าที่ต้องได้รับอนุญาตก่อน
 
-วิธีนี้ใช้ token ที่เก็บใน GitHub Actions Secrets ซึ่งซ่อนค่าและไม่เป็นส่วนหนึ่งของซอร์ส ต้องได้รับคำยืนยันจากเจ้าของก่อน เพราะข้อกำหนดเดิมห้าม secrets ขึ้น GitHub ยังไม่ได้ตั้ง secrets หรือเริ่ม deploy จากการเพิ่ม workflow นี้
+เจ้าของอนุญาตแล้วให้เก็บ token ใน GitHub Actions Secrets ซึ่งซ่อนค่าและไม่เป็นส่วนหนึ่งของซอร์ส และเก็บ runtime secrets ที่จำเป็นใน Cloudflare Secrets ปัจจุบันเว็บใช้โหมดสาธารณะโดยไม่ล็อกอิน จึงไม่ต้องตั้ง Google client หรือรหัสผ่าน และไม่ใส่ token deploy ใน runtime ของเว็บ
 
 | ชนิด | ชื่อ | ใช้ทำอะไร |
 | --- | --- | --- |
@@ -13,7 +13,7 @@
 | Actions Variable | `FINANCE_D1_DATABASE_ID` | UUID ฐาน Finance preview ที่สร้างไว้แล้ว |
 | Actions Variable | `FINANCE_APP_ORIGIN` | HTTPS workers.dev origin ของ Worker Finance preview |
 
-Runtime secrets ของระบบเข้าสู่เว็บเป็นอีกส่วนหนึ่งจาก token สำหรับ deploy ต้องกำหนดหลังเจ้าของตัดสินใจวิธีเข้าสู่ระบบ ไม่ใส่ค่าจริงใน workflow, source หรือ logs
+ไม่ใส่ค่าจริงใน workflow, source หรือ logs ตัวแปร `AUTH_MODE=public` เป็นค่ากำหนดพฤติกรรมที่เจ้าของยืนยัน ไม่ใช่ secret
 
 ## Workflow ที่เตรียมไว้
 
@@ -27,7 +27,6 @@ GitHub กำหนดให้ไฟล์ workflow ที่เรียกด
 
 ## สถานะก่อนเปิดใช้
 
-- ต้องตอบว่าจะใช้ username/password หรือ Google login
-- ต้องตอบว่าจะอนุญาต GitHub Actions Secrets หรือเก็บ secrets เฉพาะใน Cloudflare/เครื่อง
-- ต้องตั้งสิทธิ์และข้อมูลบัญชีให้ตรง พร้อมเปิดใช้ workflow ใน default branch
+- เจ้าของเลือกเปิดเว็บข้อมูลจริงสาธารณะโดยไม่ล็อกอิน และอนุญาตการเก็บ secrets ทั้งสองระบบแล้ว
+- ตั้งสิทธิ์และข้อมูลบัญชีให้ตรง พร้อมเปิดใช้ workflow ใน default branch
 - ต้องทดสอบเว็บจริงและระบบเข้าสู่ระบบหลัง deploy ก่อนนำข้อมูลเงินจริงมาใช้

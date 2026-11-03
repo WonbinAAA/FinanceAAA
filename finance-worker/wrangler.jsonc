@@ -12,6 +12,7 @@
   },
   "vars": {
     "APP_ID": "finance-aaa-preview",
+    "AUTH_MODE": "public",
     "APP_ENV": "local",
     "DEBT_PAYMENTS_ENABLED": "true"
   },

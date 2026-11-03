@@ -1,4 +1,5 @@
 let cloudSessionPromise;
+let cloudPublicAccess = false;
 const cloudPending = new Map();
 const cloudWrites = new Set(['createAccount','saveTransaction','updateTransaction','voidTransaction','confirmDraft','setAccountAvailable',
   'createCategory','updateCategory','renameCategory','setCategoryActive','moveCategory','createCompanyProject','closeCompanyProject',
@@ -10,18 +11,29 @@ async function cloudSession() {
     if (response.status === 401) { location.assign('/login'); throw new Error('กรุณาเข้าสู่ระบบ'); }
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'เข้าสู่ระบบไม่สำเร็จ');
+    cloudPublicAccess = data.public_access === true;
+    const logoutButton = document.getElementById('cloudLogoutButton');
+    if (logoutButton) logoutButton.hidden = cloudPublicAccess;
+    if (cloudPublicAccess) {
+      const note = document.getElementById('cloudAccessNote');
+      if (note) note.textContent = 'เว็บสาธารณะ · ทุกคนดูและแก้ไขรายการได้';
+    }
     if (data.development) document.querySelector('.cloud-banner')?.prepend('ทดสอบในเครื่อง · ');
     return data;
   }).catch(error => { cloudSessionPromise = null; throw error; });
   return cloudSessionPromise;
 }
-async function cloudRequest(path, body, key) {
+async function cloudRequest(path, body, key, renewed = false) {
   const auth = await cloudSession();
   const response = await fetch(path, { method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': auth.csrf_token, ...(key ? { 'Idempotency-Key': key } : {}) },
     body: JSON.stringify(body) });
-  if (response.status === 401) { location.assign('/login'); throw new Error('กรุณาเข้าสู่ระบบใหม่'); }
   const data = await response.json();
+  if (cloudPublicAccess && !renewed && (response.status === 401 || response.status === 403 && data.code === 'CSRF_REJECTED')) {
+    cloudSessionPromise = null;
+    return cloudRequest(path, body, key, true);
+  }
+  if (response.status === 401 && !cloudPublicAccess) { location.assign('/login'); throw new Error('กรุณาเข้าสู่ระบบใหม่'); }
   if (!response.ok) { const error = new Error(data.error || 'ดำเนินการไม่สำเร็จ'); error.code = data.code; error.status = response.status; error.serverResponse = true; throw error; }
   return data;
 }

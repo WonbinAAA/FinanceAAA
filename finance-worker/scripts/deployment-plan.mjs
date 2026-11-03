@@ -4,6 +4,7 @@ export async function validateDeployTarget(config, env, fetcher = fetch) {
   if (!token || !/^[a-f0-9]{32}$/.test(account || '')) throw new Error('Set the Cloudflare API token and account ID for this deployment.');
   if (config.name !== 'finance-aaa-preview' || config.vars?.APP_ID !== 'finance-aaa-preview') throw new Error('Only the Finance preview Worker may be deployed by this script.');
   if (config.vars?.APP_ENV !== 'preview' || config.vars?.LOCAL_DEV_LOGIN === 'true') throw new Error('Public deployment requires the preview environment with local login disabled.');
+  if (config.vars.AUTH_MODE !== 'public') throw new Error('This release requires the owner-approved public access mode.');
   const origin = new URL(config.vars.APP_ORIGIN || '');
   if (origin.protocol !== 'https:' || origin.origin !== config.vars.APP_ORIGIN || !origin.hostname.startsWith(config.name + '.') || !origin.hostname.endsWith('.workers.dev'))
     throw new Error('The origin must belong to the Finance preview Worker.');

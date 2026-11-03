@@ -9,8 +9,6 @@ try {
   const page = await context.newPage(), errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('http://127.0.0.1:8787/');
-  await page.waitForURL('**/login');
-  await page.getByRole('button', { name: 'ทดสอบในเครื่องด้วยข้อมูลจำลอง' }).click();
   await page.waitForFunction(() => document.getElementById('syncStatus')?.classList.contains('hidden')).catch(async error => {
     await mkdir('.wrangler/screenshots', { recursive: true });
     await page.screenshot({ path: '.wrangler/screenshots/startup-error.png', fullPage: true });
@@ -18,6 +16,9 @@ try {
     console.error('Startup status:', await page.locator('#connectionError').count() ? await page.locator('#connectionError').textContent() : 'not on app page');
     throw error;
   });
+  assert.equal(new URL(page.url()).pathname, '/');
+  assert.match(await page.locator('#cloudAccessNote').textContent(), /เว็บสาธารณะ/);
+  assert.equal(await page.locator('#cloudLogoutButton').isVisible(), false);
   const starting = await page.evaluate(async () => (await window.financeRpc('getDashboard', [])).available_cash);
   const formatted = value => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   await page.getByRole('button', { name: 'จัดการ', exact: true }).click();
@@ -74,5 +75,5 @@ try {
   await page.goto('http://127.0.0.1:8787/');
   await page.waitForFunction(() => document.getElementById('syncStatus')?.classList.contains('hidden'));
   await page.screenshot({ path: '.wrangler/screenshots/desktop-dashboard.png', fullPage: true });
-  console.log('Browser QA passed: local login, explicit account balance, synthetic expense, mobile navigation, reconciliation and desktop.');
+  console.log('Browser QA passed: public access without login, explicit account balance, synthetic expense, debt components, mobile navigation, reconciliation and desktop.');
 } finally { await browser.close(); }

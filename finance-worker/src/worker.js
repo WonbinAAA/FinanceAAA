@@ -1,5 +1,5 @@
 import { AppError, json, errorResponse } from './errors.js';
-import { authRoute, session, requireCsrf, sha256 } from './auth.js';
+import { authRoute, session, requireCsrf, sha256, publicAccess, publicSessionResponse } from './auth.js';
 import { executeFinance, METHODS, WRITES } from './finance.js';
 import { loadSnapshot, receipt, commitSnapshot } from './storage.js';
 import { prepareImport, reconciliation } from './migration.js';
@@ -36,11 +36,19 @@ function secure(response) {
 async function route(request, env) {
   const url = new URL(request.url);
   if (url.pathname === '/health' && request.method === 'GET') return json({ ok: true, service: 'finance-worker' });
+  const isPublic = publicAccess(env);
+  if (isPublic && url.pathname === '/api/session' && request.method === 'GET') return publicSessionResponse(request, env);
+  if (isPublic && ['/login', '/login.html'].includes(url.pathname) && ['GET', 'HEAD'].includes(request.method))
+    return new Response(null, { status: 302, headers: { Location: '/' } });
   if (url.pathname.startsWith('/auth/')) return authRoute(request, env);
   if (['/login', '/login.html', '/login.js', '/cloud.css'].includes(url.pathname) && ['GET', 'HEAD'].includes(request.method)) return env.ASSETS.fetch(request);
+  if (isPublic && !url.pathname.startsWith('/api/')) {
+    if (!['GET', 'HEAD'].includes(request.method)) throw new AppError('ไม่รองรับวิธีเรียกนี้', 405);
+    return env.ASSETS.fetch(request);
+  }
   const auth = await session(request, env);
   if (!auth) {
-    if (url.pathname.startsWith('/api/')) throw new AppError('กรุณาเข้าสู่ระบบด้วย Google', 401, 'LOGIN_REQUIRED');
+    if (url.pathname.startsWith('/api/')) throw new AppError(isPublic ? 'การเชื่อมต่อหมดอายุ กรุณาโหลดหน้าใหม่' : 'กรุณาเข้าสู่ระบบด้วย Google', 401, isPublic ? 'SESSION_EXPIRED' : 'LOGIN_REQUIRED');
     return new Response(null, { status: 302, headers: { Location: '/login' } });
   }
   if (url.pathname === '/api/session' && request.method === 'GET') return json({ ok: true, csrf_token: auth.csrf_token,
