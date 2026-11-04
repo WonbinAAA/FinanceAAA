@@ -1,6 +1,7 @@
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const files = [];
 async function visit(folder) {
@@ -13,6 +14,13 @@ async function visit(folder) {
 }
 for (const folder of ['src','public','migrations','scripts','test']) await visit(folder);
 for (const name of files) {
+  // The owner explicitly requested the same already-public portrait icon.
+  // Permit only this exact file; all other image/data artifacts remain blocked.
+  if (name === 'public/personal-finance-portrait-icon.png') {
+    const digest = createHash('sha256').update(await readFile(path.join(root, name))).digest('hex');
+    if (digest !== 'df88910d951ecd2298568555b42fa6a5a347fd5d5f42a696fe07755a52488d40') throw new Error('The approved public app icon has changed');
+    continue;
+  }
   if (/\.(pdf|xlsx?|csv|sqlite|db|png|jpe?g)$/i.test(name)) throw new Error('Private/binary artifact in release sources');
   const content = await readFile(path.join(root, name), 'utf8');
   if (/-----BEGIN [A-Z ]*PRIVATE KEY-----|\bya29\.[A-Za-z0-9_-]{12,}|\bAIza[A-Za-z0-9_-]{25,}|\bgh[pousr]_[A-Za-z0-9]{20,}/.test(content))

@@ -2,6 +2,15 @@
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#icon-${name}"></use></svg>`;
 const pages = [ ['Dashboard','home','หน้าหลัก'], ['Transactions','list','รายการ'], ['Company','company','บริษัท'], ['Debt','debt','หนี้'], ['Recurring','repeat','รายการประจำ'] ];
 
+export function applyAppIcon(html) {
+  if (html.includes('rel="icon"')) return html;
+  return html.replace('</head>', `<link rel="icon" type="image/png" href="/personal-finance-portrait-icon.png">
+<link rel="apple-touch-icon" href="/personal-finance-portrait-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#713dea">
+</head>`);
+}
+
 export function applyLayoutHtml(html) {
   if (html.includes('id="financeSidebar"')) return refineWorkspaceHtml(html);
   html = html.replace('<link rel="stylesheet" href="/cloud.css">', '<link rel="stylesheet" href="/cloud.css">\n<link rel="stylesheet" href="/workspace.css">');
@@ -19,6 +28,7 @@ export function applyLayoutHtml(html) {
 }
 
 function refineWorkspaceHtml(html) {
+  html = applyAppIcon(html);
   // Remove the exact top strip requested by the owner. Backup remains in the menu.
   html = html.replace(/<div class="cloud-banner">[\s\S]*?<\/div>\s*/, '');
   html = html.replace(/<div id="cloudDebt(?:Page)?Warning"[^>]*><\/div>\s*/g, '');
