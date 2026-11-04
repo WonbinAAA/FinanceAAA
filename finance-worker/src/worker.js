@@ -3,6 +3,7 @@ import { authRoute, session, requireCsrf, sha256, publicAccess, publicSessionRes
 import { executeFinance, METHODS, WRITES } from './finance.js';
 import { loadSnapshot, receipt, commitSnapshot } from './storage.js';
 import { prepareImport, reconciliation } from './migration.js';
+import { protectCompanyWrites } from './company-link.js';
 
 async function bodyJson(request, max = 65536) {
   if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) throw new AppError('ต้องส่งข้อมูล JSON', 415);
@@ -57,7 +58,11 @@ async function route(request, env) {
   if (url.pathname === '/api/export' && request.method === 'GET') {
     const snapshot = await loadSnapshot(env.DB);
     const response = json({ format: 'finance-sheets-v1', time_zone: 'Asia/Bangkok', exported_at: new Date().toISOString(),
-      tables: snapshot.tables, expected: reconciliation(snapshot) });
+      tables: snapshot.tables, expected: reconciliation(snapshot), company_link: {
+        control: await env.DB.prepare('SELECT * FROM company_link_control').all(),
+        groups: await env.DB.prepare('SELECT * FROM company_link_groups').all(),
+        sources: await env.DB.prepare('SELECT * FROM company_link_sources').all(),
+      } });
     response.headers.set('Content-Disposition', 'attachment; filename="finance-backup.json"');
     return response;
   }
@@ -83,12 +88,15 @@ async function route(request, env) {
       return json(preview);
     }
     if (url.pathname === '/api/import/commit') {
+      if (await env.DB.prepare('SELECT 1 FROM company_link_control WHERE enabled=1').first())
+        throw new AppError('เปิดเชื่อมเว็บบริษัทแล้ว ต้องตรวจแผนย้ายข้อมูลร่วมกับประวัติการเชื่อมก่อน',409,'COMPANY_LINK_REVIEW');
       const plan = await prepareImport(before, body.export);
       if (!plan.ok || !plan.comparison?.ok || body.confirm_digest !== plan.digest || body.expected_revision !== before.revision)
         throw new AppError('ผลตรวจนำเข้าไม่ตรงกับข้อมูลล่าสุด กรุณาตรวจใหม่', 409, 'IMPORT_REVIEW_REQUIRED');
       const result = { ok: true, imported: plan.added, skipped: plan.skipped, reconciliation: plan.reconciliation };
       return json(await commitSnapshot(env.DB, before, plan.snapshot, requestId, hash, result));
     }
+    await protectCompanyWrites(env.DB, method, body.args || []);
     const executed = executeFinance(before, method, body.args || [], { debtPaymentsEnabled: env.DEBT_PAYMENTS_ENABLED === 'true' });
     return json(writing ? await commitSnapshot(env.DB, before, executed.snapshot, requestId, hash, executed.result) : executed.result);
   }

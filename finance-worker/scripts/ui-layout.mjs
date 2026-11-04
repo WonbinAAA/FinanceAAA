@@ -62,6 +62,9 @@ export function applyLayoutJavaScript(js) {
 }
 
 function refineLedgerJavaScript(js) {
+  const companyUrl='https://company-expenses-ledger.sugrid-kumpa.workers.dev/?from=finance#transactions';
+  if (!js.includes(companyUrl)) js=js.replace('function showPage(name) {', `function showPage(name) {\n  if (name === 'Company') { location.assign('${companyUrl}'); return; }`);
+  if (!js.includes("addEventListener('pageshow'")) js += "\nwindow.addEventListener('pageshow', event => { if (event.persisted) refreshAll(); });\n";
   if (!js.includes('return renderLedgerRow(item, {compact:true});')) {
     const start=js.indexOf('function transactionRow(item) {'), end=js.indexOf('function renderLatest(items)',start);
     if(start<0||end<0) throw new Error('Cannot locate the read-only transaction renderer');

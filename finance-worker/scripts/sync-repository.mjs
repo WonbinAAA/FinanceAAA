@@ -8,7 +8,7 @@ const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const repository = path.resolve(root, '../.publish/FinanceAAA');
 if (path.resolve(root) === path.join(repository, 'finance-worker')) throw new Error('Already in the repository; no sync needed');
 const target = path.join(repository, 'finance-worker');
-const allowed = ['package.json','package-lock.json','.gitignore','.dev.vars.example','wrangler.jsonc','README.md','MIGRATION.md','DEBT-REVIEW.md','GOOGLE-LOGIN-SETUP.md','DEPLOY-ACTIONS.md'];
+const allowed = ['package.json','package-lock.json','.gitignore','.dev.vars.example','wrangler.jsonc','README.md','MIGRATION.md','DEBT-REVIEW.md','GOOGLE-LOGIN-SETUP.md','DEPLOY-ACTIONS.md','COMPANY-LINK.md'];
 async function walk(folder) {
   for (const item of await readdir(path.join(root, folder), { withFileTypes: true })) {
     if (item.isSymbolicLink()) throw new Error('No symlinks in publish sources');

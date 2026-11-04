@@ -767,6 +767,7 @@ async function loadTransactions() {
   } catch (error) { if (request === transactionRequest) fail(error); }
 }
 function showPage(name) {
+  if (name === 'Company') { location.assign('https://company-expenses-ledger.sugrid-kumpa.workers.dev/?from=finance#transactions'); return; }
   if (name !== 'Dashboard' && !requireFreshData()) return;
   document.querySelectorAll('.page').forEach(page => page.classList.toggle('hidden', page.id !== 'page' + name));
   document.querySelectorAll('.bottom-nav button[data-page], .finance-sidebar button[data-page]').forEach(button => {
@@ -1179,3 +1180,5 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) refr
 installDialogScrollLock();
 refreshAll();
 scheduleTodayRefresh();
+
+window.addEventListener('pageshow', event => { if (event.persisted) refreshAll(); });

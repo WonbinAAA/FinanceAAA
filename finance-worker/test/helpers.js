@@ -1,10 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { emptySnapshot, SCHEMA } from '../src/schema.js';
 
 export function testDb() {
   const sqlite = new DatabaseSync(':memory:');
-  sqlite.exec(readFileSync(new URL('../migrations/0001_initial.sql', import.meta.url), 'utf8'));
+  for (const name of readdirSync(new URL('../migrations/',import.meta.url)).filter(n=>n.endsWith('.sql')).sort())
+    sqlite.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
   class Statement {
     constructor(sql, bindings = []) { Object.assign(this, { sql, bindings }); }
     bind(...values) { return new Statement(this.sql, values); }

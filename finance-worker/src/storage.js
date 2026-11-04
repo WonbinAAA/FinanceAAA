@@ -48,12 +48,12 @@ export function snapshotStatements(db, before, after) {
   return statements;
 }
 
-export async function commitSnapshot(db, before, after, requestId, hash, response) {
+export async function commitSnapshot(db, before, after, requestId, hash, response, extraStatements = []) {
   const statements = snapshotStatements(db, before, after);
   // The NOT NULL constraint is an atomic compare-and-swap guard. Any failure
   // rolls back this whole D1 batch, including the receipt and all audit rows.
   const batch = [db.prepare('UPDATE finance_state SET revision = CASE WHEN revision = ? THEN revision + 1 ELSE NULL END WHERE singleton = 1')
-    .bind(before.revision), ...statements,
+    .bind(before.revision), ...statements, ...extraStatements,
   db.prepare('INSERT INTO request_receipts(request_id, request_hash, response_json, created_at) VALUES (?, ?, ?, ?)')
     .bind(requestId, hash, JSON.stringify(response), Math.floor(Date.now() / 1000))];
   try { await db.batch(batch); }

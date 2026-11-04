@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "finance-aaa-preview",
-  "main": "src/worker.js",
+  "main": "src/entry.js",
   "compatibility_date": "2026-11-03",
   "workers_dev": true,
   "preview_urls": false,
