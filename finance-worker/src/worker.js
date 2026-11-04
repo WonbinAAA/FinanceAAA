@@ -4,6 +4,7 @@ import { executeFinance, METHODS, WRITES } from './finance.js';
 import { loadSnapshot, receipt, commitSnapshot } from './storage.js';
 import { prepareImport, reconciliation } from './migration.js';
 import { protectCompanyWrites } from './company-link.js';
+import { readCompanySummary } from './company-summary.js';
 
 async function bodyJson(request, max = 65536) {
   if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) throw new AppError('ต้องส่งข้อมูล JSON', 415);
@@ -55,6 +56,7 @@ async function route(request, env) {
   if (url.pathname === '/api/session' && request.method === 'GET') return json({ ok: true, csrf_token: auth.csrf_token,
     email: auth.email, development: auth.google_sub === 'local-development' });
   if (url.pathname === '/api/reconcile' && request.method === 'GET') return json(reconciliation(await loadSnapshot(env.DB)));
+  if (url.pathname === '/api/company-ledger-summary' && request.method === 'GET') return json(await readCompanySummary(env));
   if (url.pathname === '/api/export' && request.method === 'GET') {
     const snapshot = await loadSnapshot(env.DB);
     const response = json({ format: 'finance-sheets-v1', time_zone: 'Asia/Bangkok', exported_at: new Date().toISOString(),

@@ -4,6 +4,7 @@
   "main": "src/entry.js",
   "compatibility_date": "2026-11-03",
   "workers_dev": true,
+  "services": [{"binding":"COMPANY_LEDGER","service":"company-expenses-ledger"}],
   "preview_urls": false,
   "assets": {
     "directory": "./public",

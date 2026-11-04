@@ -1,5 +1,7 @@
 # Company ledger connection
 
+The Finance dashboard's **ยอดสุทธิบริษัท** card reads the company owner's entire active book through the `COMPANY_LEDGER` service binding and `/finance/api/summary`: income minus expenses, in integer satang. This includes the book's self allowances and personally funded expenses, exactly as its unfiltered totals do. It is separate from reserved project/pool funds, reimbursement claims, bank balances and available cash; none of those accounting values are changed by this display. The browser loads the summary independently after the dashboard, so a company read failure cannot replace it with wallet funds or a false zero, or block the bank balance display.
+
 The company app remains the place to create, edit, trash and restore linked company entries. Its existing report fields, PDF/Excel renderer and templates are unchanged. Finance shows the resulting bank, available-cash, company advance and reimbursement totals using the existing accounting engine.
 
 ## Deployment order

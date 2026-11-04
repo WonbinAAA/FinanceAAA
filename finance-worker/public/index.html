@@ -57,7 +57,7 @@
       <div class="hero-heading"><span>เงินพร้อมใช้</span><span class="hero-mark"><svg class="icon"><use href="#icon-wallet"></use></svg></span></div>
       <div id="cash" class="hero-money">฿0.00</div>
       <div class="hero-caption">ยอดเงินจริงในบัญชีที่เลือก รวมเงินบริษัทที่อยู่ในบัญชีเหล่านี้</div>
-      <button class="dashboard-company-funds" onclick="showPage('Company')" aria-label="ดูรายละเอียดเงินบริษัทที่ถืออยู่"><span class="dashboard-company-icon"><svg class="icon"><use href="#icon-company"></use></svg></span><span class="dashboard-company-copy">เงินบริษัทที่ถืออยู่<small>ทุกบัญชี · ยังไม่ใช่เงินส่วนตัว</small></span><b id="dashboardCompanyHeld">฿0.00</b><span class="dashboard-company-arrow" aria-hidden="true">›</span></button>
+      <button class="dashboard-company-funds" onclick="showPage('Company')" aria-label="เปิดสมุดบริษัทเพื่อดูยอดสุทธิ"><span class="dashboard-company-icon"><svg class="icon"><use href="#icon-company"></use></svg></span><span class="dashboard-company-copy">ยอดสุทธิบริษัท<small id="dashboardCompanyNetCaption">กำลังอ่านสมุดบริษัท…</small></span><b id="dashboardCompanyHeld">—</b><span class="dashboard-company-arrow" aria-hidden="true">›</span></button>
       <div class="balance-formula" aria-label="ที่มาของยอดเงินทั้งหมด">
         <span>ยอดเริ่มต้น <b id="openingFlow">฿0.00</b></span>
         <span>+ เงินเข้า <b id="inflowFlow">฿0.00</b></span>
@@ -196,7 +196,7 @@
         <p><strong>เบี้ยเลี้ยงให้ตัวเอง</strong> ใช้เมื่อเงินบริษัทในบัญชีของคุณเปลี่ยนเป็นสิทธิ์ของคุณแล้ว ระบบลดเงินบริษัทและเพิ่มรายได้ส่วนตัวโดยไม่เปลี่ยนยอดบัญชี ต้องมีเงินล่วงหน้าเพียงพอ หากย้ายเงินเข้าบัญชีอื่น ให้บันทึกโอนเงินต่างหาก</p>
         <p><strong>เบี้ยเลี้ยงให้คนอื่น</strong> ใส่ชื่อผู้รับ หมวดเบี้ยเลี้ยง จำนวนและบัญชีที่จ่าย เงินออกจากบัญชีจริง อย่าบันทึกรายจ่ายเดียวกันซ้ำในฟอร์มทั่วไป</p>
         <p>โปรเจกต์จบแล้ว ใช้ <strong>ย้ายเงินเหลือไปโปรเจกต์อื่น</strong> หรือระบุปลายทางเป็น <strong>กองกลางบริษัท</strong> การย้ายนี้เปลี่ยนการจัดสรรเท่านั้น หากโอนเงินจริงระหว่างบัญชีให้บันทึกโอนเงินแยก หรือใช้ <strong>คืนเงินล่วงหน้าบริษัท</strong> เมื่อคืนเงินจริง</p>
-        <p>ยอดบัญชีและเงินพร้อมใช้ยังรวมเงินบริษัทที่อยู่ในบัญชี ให้ดู <strong>เงินบริษัทที่ถืออยู่</strong> แยกประกอบด้วย รายการพิเศษแก้โดยยกเลิกแล้วบันทึกใหม่ ระบบจะป้องกันการเปลี่ยนที่ทำให้เงินล่วงหน้าไม่พอหรือกระทบเงินคืนที่จับคู่แล้ว</p>
+        <p>ยอดบัญชีและเงินพร้อมใช้ยังรวมเงินบริษัทที่อยู่ในบัญชี ให้ดู <strong>ยอดสุทธิบริษัท</strong> ซึ่งเป็นเงินรับลบเงินจ่ายทั้งหมดตามสมุดบริษัทประกอบ ยอดสุทธินี้ไม่หักจากยอดบัญชีซ้ำ รายการพิเศษแก้โดยยกเลิกแล้วบันทึกใหม่ ระบบจะป้องกันการเปลี่ยนที่ทำให้เงินล่วงหน้าไม่พอหรือกระทบเงินคืนที่จับคู่แล้ว</p>
       </div></details>
       <details><summary>รายจ่ายส่วนตัวและรายจ่ายบริษัท</summary><div>
         <p>เมื่อจ่ายเงินของตัวเอง เลือก <strong>รายจ่ายส่วนตัว</strong> และบัญชีที่จ่ายจริง</p>
@@ -357,6 +357,7 @@
   <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.26.24/dist/sweetalert2.all.min.js"></script>
   <script src="/cloud.js"></script>
 <script src="/ledger-view.js"></script>
+<script src="/company-net.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

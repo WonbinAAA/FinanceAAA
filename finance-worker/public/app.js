@@ -521,7 +521,7 @@ async function confirmCompanyFunding(input,id='') {
 }
 function renderDashboard(data) {
   $('cash').textContent = money(data.available_cash);
-  $('dashboardCompanyHeld').textContent = money(data.company_advance || 0);
+  void window.refreshCompanyLedgerNet();
   $('openingFlow').textContent = money(data.available_opening);
   $('inflowFlow').textContent = money(data.available_inflow);
   $('outflowFlow').textContent = money(data.available_outflow);

@@ -29,6 +29,11 @@ export function applyLayoutHtml(html) {
 
 function refineWorkspaceHtml(html) {
   html = applyAppIcon(html);
+  html=html.replace('aria-label="ดูรายละเอียดเงินบริษัทที่ถืออยู่"','aria-label="เปิดสมุดบริษัทเพื่อดูยอดสุทธิ"');
+  html=html.replace('เงินบริษัทที่ถืออยู่<small>ทุกบัญชี · ยังไม่ใช่เงินส่วนตัว</small>','ยอดสุทธิบริษัท<small id="dashboardCompanyNetCaption">กำลังอ่านสมุดบริษัท…</small>');
+  html=html.replace('<b id="dashboardCompanyHeld">฿0.00</b>','<b id="dashboardCompanyHeld">—</b>');
+  html=html.replace('ให้ดู <strong>เงินบริษัทที่ถืออยู่</strong> แยกประกอบด้วย','ให้ดู <strong>ยอดสุทธิบริษัท</strong> ซึ่งเป็นเงินรับลบเงินจ่ายทั้งหมดตามสมุดบริษัทประกอบ ยอดสุทธินี้ไม่หักจากยอดบัญชีซ้ำ');
+  if(!html.includes('src="/company-net.js"'))html=html.replace('<script src="/app.js"></script>','<script src="/company-net.js"></script>\n<script src="/app.js"></script>');
   // Remove the exact top strip requested by the owner. Backup remains in the menu.
   html = html.replace(/<div class="cloud-banner">[\s\S]*?<\/div>\s*/, '');
   html = html.replace(/<div id="cloudDebt(?:Page)?Warning"[^>]*><\/div>\s*/g, '');
@@ -62,6 +67,7 @@ export function applyLayoutJavaScript(js) {
 }
 
 function refineLedgerJavaScript(js) {
+  js=js.replace("$('dashboardCompanyHeld').textContent = money(data.company_advance || 0);",'void window.refreshCompanyLedgerNet();');
   const companyUrl='https://company-expenses-ledger.sugrid-kumpa.workers.dev/finance/?from=finance#transactions';
   js=js.replaceAll('https://company-expenses-ledger.sugrid-kumpa.workers.dev/?from=finance#transactions',companyUrl);
   if (!js.includes(companyUrl)) js=js.replace('function showPage(name) {', `function showPage(name) {\n  if (name === 'Company') { location.assign('${companyUrl}'); return; }`);

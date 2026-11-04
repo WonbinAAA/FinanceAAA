@@ -339,3 +339,8 @@ body{background:radial-gradient(ellipse at 85% 0%,#f1e6ff 0,transparent 45%),var
   .topbar{position:sticky;top:0;z-index:6;box-shadow:0 3px 16px #52267a05}
   .finance-detail-grid #latestList{margin:0 -23px -22px}
 }
+
+.hero .dashboard-company-funds.company-net-negative{background:#fff0f5;border-color:#ffc9dc}
+.hero .company-net-negative .dashboard-company-copy,.hero .company-net-negative>b,.hero .company-net-negative .dashboard-company-arrow{color:#aa2852}
+.hero .company-net-negative .dashboard-company-copy small{color:#96536b}
+.hero .company-net-negative .dashboard-company-icon{background:#f9d6e3;color:#aa2852}

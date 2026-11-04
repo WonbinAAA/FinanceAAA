@@ -1,0 +1,36 @@
+(function () {
+  let pending;
+  const money = cents => (cents < 0 ? '−฿' : '฿') + (Math.abs(cents) / 100).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  window.refreshCompanyLedgerNet = function () {
+    if (pending) return pending;
+    const value = document.getElementById('dashboardCompanyHeld');
+    const caption = document.getElementById('dashboardCompanyNetCaption');
+    const card = document.querySelector('.dashboard-company-funds');
+    if (!value || !caption || !card) return Promise.resolve();
+    value.textContent = '—';
+    caption.textContent = 'กำลังอ่านสมุดบริษัท…';
+    card.setAttribute('aria-busy', 'true');
+    pending = (async () => {
+      try {
+        await cloudSession();
+        const response = await fetch('/api/company-ledger-summary', {credentials: 'same-origin', cache: 'no-store'});
+        if (!response.ok) throw new Error('unavailable');
+        const data = await response.json();
+        if (data.source !== 'company-owner-ledger' || data.owner_id !== 'owner' || data.scope !== 'all-active-entries' || data.currency !== 'THB'
+          || !['net_cents','income_cents','expense_cents','pending_count'].every(key => Number.isSafeInteger(data[key]))
+          || data.income_cents < 0 || data.expense_cents < 0 || data.pending_count < 0
+          || data.net_cents !== data.income_cents - data.expense_cents) throw new Error('invalid');
+        value.textContent = money(data.net_cents);
+        caption.textContent = data.pending_count > 0 ? `สมุดบริษัท · รออัปเดตบัญชี ${data.pending_count} รายการ` : 'ตามสมุดบริษัท · ทุกช่วงวันที่';
+        card.classList.toggle('company-net-negative', data.net_cents < 0);
+        card.setAttribute('title', `รับ ${money(data.income_cents)} − จ่าย ${money(data.expense_cents)} · ทุกงานและทุกช่วงวันที่`);
+      } catch {
+        value.textContent = '—';
+        caption.textContent = 'อ่านยอดไม่สำเร็จ · กดเปิดสมุดบริษัท';
+        card.classList.toggle('company-net-negative', false);
+        card.removeAttribute('title');
+      } finally { card.setAttribute('aria-busy', 'false'); }
+    })().finally(() => { pending = undefined; });
+    return pending;
+  };
+})();
