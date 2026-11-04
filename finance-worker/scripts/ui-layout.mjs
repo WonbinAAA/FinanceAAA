@@ -62,7 +62,8 @@ export function applyLayoutJavaScript(js) {
 }
 
 function refineLedgerJavaScript(js) {
-  const companyUrl='https://company-expenses-ledger.sugrid-kumpa.workers.dev/?from=finance#transactions';
+  const companyUrl='https://company-expenses-ledger.sugrid-kumpa.workers.dev/finance/?from=finance#transactions';
+  js=js.replaceAll('https://company-expenses-ledger.sugrid-kumpa.workers.dev/?from=finance#transactions',companyUrl);
   if (!js.includes(companyUrl)) js=js.replace('function showPage(name) {', `function showPage(name) {\n  if (name === 'Company') { location.assign('${companyUrl}'); return; }`);
   if (!js.includes("addEventListener('pageshow'")) js += "\nwindow.addEventListener('pageshow', event => { if (event.persisted) refreshAll(); });\n";
   if (!js.includes('return renderLedgerRow(item, {compact:true});')) {
