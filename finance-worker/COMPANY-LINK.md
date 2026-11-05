@@ -6,6 +6,12 @@ The company app remains the place to create, edit, trash and restore linked comp
 
 New entries in the Finance form default to the active account named **กรุงไทย** when present; editing preserves the original account. The form offers personal expense, income and transfer. Historical company records remain available, and linked edits continue through the company app.
 
+## Company entries in the Finance list
+
+The transaction list and latest entries use the read-only `getDisplayTransactions` RPC. It combines personal Finance history with the current active company owner's source entries fetched through the fixed `/finance/api/bootstrap` service request. Company titles, dates, amounts, multiline notes and projects come from that source, with one visible row per company entry. Existing Finance company rows, including combined historical targets and unmatched older company rows, are excluded from this view. They remain in the audited accounting history and backups so removing them from the screen cannot reverse or duplicate bank movements. No migration or financial write is needed for this presentation change.
+
+Connection metadata supplies the bank account, financial category and cashless type; it does not replace source content. Three company allowances can therefore appear separately while retaining one original combined bank transaction. Self allowances remain cashless and excluded from daily bank-cash net. Pending source revisions are marked as awaiting a bank update. Source details are read again when opened, and the link to the company app is the place to edit them. If the source is unavailable the list reports a retryable error rather than showing old company copies or silently presenting an incomplete total. Bank balances load independently.
+
 ## Deployment order
 
 1. Deploy Finance, including migration `0002_company_link.sql` and the named `CompanyFinance` RPC entrypoint.

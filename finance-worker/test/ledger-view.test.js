@@ -3,6 +3,18 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 function view(){const context=vm.createContext({Intl,Date});vm.runInContext(readFileSync(new URL('../public/ledger-view.js',import.meta.url),'utf8'),context);return context;}
+test('category icons match food, drinks, travel and other meanings without changing transaction amounts',()=>{
+ const v=view();
+ for(const [label,kind]of [['ข้าวเช้า','food'],['ข้าวเย็น','food'],['ของกินเล่น','food'],['กาแฟ/คาเฟ่','drink'],['เดินทาง','transport'],['น้ำมัน','fuel'],['โทรศัพท์/อินเทอร์เน็ต','phone'],['สุขภาพ','health'],['ช้อปปิ้ง','shopping'],['ชำระหนี้','finance'],['บันเทิง','entertainment'],['ของขวัญ','gift'],['เบี้ยเลี้ยง','allowance']]){
+  const row={category_name:label,transaction_type:'EXPENSE',amount:12.34};assert.equal(v.ledgerIconKind(row),kind,label);assert.equal(row.amount,12.34);
+ }
+ assert.equal(v.ledgerIconKind({category_name:'อาหาร',transaction_type:'TRANSFER'}),'transfer');
+ assert.equal(v.ledgerIconKind({category_name:'ไม่ทราบหมวด',transaction_type:'EXPENSE'}),'other');
+});
+test('source titles and multiline company notes are shown without the old combined label or unsafe markup',()=>{
+ const html=view().renderLedgerRow({transaction_id:'company:synthetic',source:'company-owner-ledger',source_title:'เบี้ยเลี้ยงบุคคลจำลอง',category_name:'เบี้ยเลี้ยง',company_kind:'OTHER_ALLOWANCE',recipient:'ชื่อเก่า',description:'ข้อความจากบริษัท\n<script>unsafe</script>',status:'ACTIVE',amount:200,transaction_type:'EXPENSE'});
+ assert.match(html,/เบี้ยเลี้ยงบุคคลจำลอง/);assert.doesNotMatch(html,/เบี้ยเลี้ยง · ชื่อเก่า|<script>/);assert.match(html,/&lt;script&gt;/);
+});
 const tx=extra=>({transaction_id:'TX-SYNTHETIC',transaction_date:'2026-10-30',transaction_type:'EXPENSE',expense_owner:'COMPANY',amount:600,status:'ACTIVE',category_name:'เบี้ยเลี้ยง',account_name:'บัญชีจำลอง',description:'เบี้ยเลี้ยง 4 วัน\nไม่รวมวันหยุด',project_name:'โปรเจกต์จำลอง',...extra});
 test('daily ledger keeps every original ID and status, orders days newest first, and never changes the records',()=>{
   const v=view(),items=[tx({transaction_id:'OLD',transaction_date:'2026-10-29',status:'VOID'}),tx({transaction_id:'NEW'}),tx({transaction_id:'DRAFT',status:'DRAFT'})];

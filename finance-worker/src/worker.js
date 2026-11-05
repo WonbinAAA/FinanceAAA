@@ -5,6 +5,7 @@ import { loadSnapshot, receipt, commitSnapshot } from './storage.js';
 import { prepareImport, reconciliation } from './migration.js';
 import { protectCompanyWrites } from './company-link.js';
 import { readCompanySummary } from './company-summary.js';
+import { readCompanyBook, displayLedger } from './company-view.js';
 
 async function bodyJson(request, max = 65536) {
   if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) throw new AppError('ต้องส่งข้อมูล JSON', 415);
@@ -74,7 +75,7 @@ async function route(request, env) {
     if (!['/api/rpc', '/api/import/preview', '/api/import/commit'].includes(url.pathname)) throw new AppError('ไม่พบคำสั่ง', 404);
     const body = await bodyJson(request, url.pathname.startsWith('/api/import/') ? 5 * 1024 * 1024 : 65536);
     const method = body.method;
-    if (url.pathname === '/api/rpc' && !METHODS.has(method)) throw new AppError('ไม่รองรับคำสั่งนี้', 404);
+    if (url.pathname === '/api/rpc' && !METHODS.has(method) && method !== 'getDisplayTransactions') throw new AppError('ไม่รองรับคำสั่งนี้', 404);
     const writing = url.pathname === '/api/import/commit' || WRITES.has(method);
     let hash, requestId;
     if (writing) {
@@ -85,6 +86,15 @@ async function route(request, env) {
       if (saved) return json(saved);
     }
     const before = await loadSnapshot(env.DB);
+    if(method==='getDisplayTransactions'){
+      if(!Array.isArray(body.args)||body.args.length>1||body.args[0]&&typeof body.args[0]!=='object')throw new AppError('รูปแบบคำขอไม่ถูกต้อง');
+      const filters=body.args[0]||{};
+      // Validate date filters using the same engine, without changing any accounting state.
+      executeFinance(before,'getTransactions',[filters]);
+      const [book,links]=await Promise.all([readCompanyBook(env),env.DB.prepare('SELECT s.id AS source_id,s.revision,g.transaction_id,g.config_json FROM company_link_sources s JOIN company_link_groups g ON s.group_id=g.id').all()]);
+      const rows=executeFinance(before,'getTransactions',[{}]).result;
+      return json(displayLedger(rows,book,links.results,filters,before.tables['บัญชี'].rows));
+    }
     if (url.pathname === '/api/import/preview') {
       const { snapshot, ...preview } = await prepareImport(before, body.export);
       return json(preview);

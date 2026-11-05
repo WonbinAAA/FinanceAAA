@@ -101,8 +101,8 @@
     </div>
 
 <section id="pageTransactions" class="page hidden">
-      <div class="page-heading"><h2>รายการทั้งหมด</h2><p>แตะรายการเพื่อดูรายละเอียด แก้ไข หรือยกเลิก</p></div>
-      <div class="transactions-banner"><span class="transactions-banner-icon"><svg class="icon"><use href="#icon-list"></use></svg></span><div><b>บันทึกเงินของคุณ</b><p>รายรับ · รายจ่าย · เงินบริษัท · โอนเงิน</p></div></div>
+      <div class="page-heading"><h2>รายการทั้งหมด</h2></div>
+      <div class="transactions-banner"><span class="transactions-banner-icon"><svg class="icon"><use href="#icon-list"></use></svg></span><div><b>บันทึกเงินของคุณ</b></div></div>
       <div class="transaction-view-switch" aria-label="แยกประเภทรายการ">
         <button type="button" data-view="all" aria-pressed="true" onclick="selectTransactionView('all')">ทั้งหมด</button>
         <button type="button" data-view="personal" aria-pressed="false" onclick="selectTransactionView('personal')">รายจ่ายส่วนตัว</button>
@@ -246,7 +246,8 @@
     <div class="actions"><button class="secondary" onclick="$('companyFundsDialog').close()">ยกเลิก</button><button id="companyFundsSave" class="primary" onclick="saveCompanyFunds()">บันทึก</button></div>
   </div></dialog>
 
-  <dialog id="entryDialog">
+  <dialog id="companySourceDialog"><div class="dialog-body"><div class="dialog-head"><h2>รายละเอียดรายการบริษัท</h2><button class="close" aria-label="ปิดรายละเอียดบริษัท" onclick="$('companySourceDialog').close()">×</button></div><div id="companySourceContent"></div><a class="primary" href="https://company-expenses-ledger.sugrid-kumpa.workers.dev/finance/?from=finance#transactions">เปิดเว็บบริษัท</a></div></dialog>
+<dialog id="entryDialog">
     <div class="dialog-body">
       <div class="dialog-head"><div><h2 id="entryDialogTitle">เพิ่มรายการ</h2></div><button class="close" aria-label="ปิดฟอร์ม" onclick="cancelDialog('entryDialog')">×</button></div>
       <div class="type-switch">
@@ -357,6 +358,7 @@
   <script src="/cloud.js"></script>
 <script src="/ledger-view.js"></script>
 <script src="/company-net.js"></script>
+<script src="/company-view.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

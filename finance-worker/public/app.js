@@ -640,8 +640,17 @@ async function toggleAccountAvailable(id) {
   } catch(error) { fail(error); }
 }
 function transactionRow(item) { return renderLedgerRow(item, {compact:true}); }
-function renderLatest(items) {
-  $('latestList').innerHTML = items.length ? renderLedgerDays(items) : '<div class="empty">ยังไม่มีรายการ</div>';
+async function renderLatest() {
+  const request=++latestViewRequest;
+  $('latestList').innerHTML='<div class="empty">กำลังโหลด...</div>';
+  try {
+    const items=await server('getDisplayTransactions',{limit:8});
+    if(request!==latestViewRequest)return;
+    $('latestList').innerHTML=items.length?renderLedgerDays(items):'<div class="empty">ยังไม่มีรายการ</div>';
+  } catch(error) {
+    if(request!==latestViewRequest)return;
+    $('latestList').innerHTML='<div class="empty">'+esc(error.message)+' <button class="secondary" onclick="renderLatest()">ลองใหม่</button></div>';
+  }
 }
 function renderCompany(data) {
   fillProjectSelects();
@@ -765,12 +774,17 @@ async function loadTransactions() {
     return;
   }
   $('transactionCount').textContent='กำลังค้นหา...';
+  $('transactionList').innerHTML='<div class="empty">กำลังโหลด...</div>';
   try {
-    const items = await server('getTransactions', filters);
+    const items = await server('getDisplayTransactions', filters);
     if (request !== transactionRequest) return;
     $('transactionCount').textContent = items.length + ' รายการตามตัวกรอง';
     $('transactionList').innerHTML = items.length ? renderLedgerDays(items) : '<div class="empty">ไม่พบรายการ</div>';
-  } catch (error) { if (request === transactionRequest) fail(error); }
+  }
+  catch(error){if(request===transactionRequest){
+    $('transactionCount').textContent='อ่านรายการไม่สำเร็จ';
+    $('transactionList').innerHTML='<div class="empty">'+esc(error.message)+' <button class="secondary" onclick="loadTransactions()">ลองใหม่</button></div>';
+  }}
 }
 function showPage(name) {
   if (name === 'Company') { location.assign('https://company-expenses-ledger.sugrid-kumpa.workers.dev/finance/?from=finance#transactions'); return; }
@@ -787,6 +801,7 @@ function showPage(name) {
   window.scrollTo(0, 0);
 }
 async function openDetail(id) {
+  if(id.startsWith('company:')){await openCompanySourceDetail(id);return;}
   if (!requireFreshData()) return;
   try {
     const item = await server('getTransaction', id);
