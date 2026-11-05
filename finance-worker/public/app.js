@@ -307,6 +307,9 @@ async function changeCategoryOrder(id,direction) {
   finally { categoryBusy=false; }
 }
 function selectType(type, owner = 'PERSONAL') {
+  // Company entries are created in the source book; historical edit values stay intact.
+  if(type==='EXPENSE'&&owner==='COMPANY'&&!selectedTx){showPage('Company');return;}
+  $('entryDialog').dataset.entryType=type;
   selectedType = type;
   $('owner').value = type === 'EXPENSE' && owner === 'COMPANY' ? 'COMPANY' : 'PERSONAL';
   const kind = type === 'EXPENSE' ? $('owner').value : type;
@@ -376,6 +379,9 @@ function resetForm() {
   $('refundMatches').innerHTML = '';
   $('saveButton').textContent = 'บันทึก';
   selectType('EXPENSE');
+  const preferredExpenseAccount=BOOT?.accounts?.find(a=>String(a.account_name||'').trim()==='กรุงไทย');
+  if(preferredExpenseAccount) $('account').value=preferredExpenseAccount.account_id;
+  syncAccountPickerButtons();
 }
 function requireFreshData() {
   if (dataReady) return true;
@@ -527,7 +533,7 @@ function renderDashboard(data) {
   $('outflowFlow').textContent = money(data.available_outflow);
   $('income').textContent = money(data.income);
   $('personal').textContent = money(data.personal_expense);
-  $('company').textContent = money(data.company_receivable);
+  // Reserve display is read from the company book, independently of bank cash.
   $('debt').textContent = money(data.debt_balance);
   const today=data.today_expenses;
   $('todayExpenseCard').disabled=!today?.date;
@@ -635,7 +641,7 @@ async function toggleAccountAvailable(id) {
 }
 function transactionRow(item) { return renderLedgerRow(item, {compact:true}); }
 function renderLatest(items) {
-  $('latestList').innerHTML = items.length ? items.map(transactionRow).join('') : '<div class="empty">ยังไม่มีรายการ</div>';
+  $('latestList').innerHTML = items.length ? renderLedgerDays(items) : '<div class="empty">ยังไม่มีรายการ</div>';
 }
 function renderCompany(data) {
   fillProjectSelects();

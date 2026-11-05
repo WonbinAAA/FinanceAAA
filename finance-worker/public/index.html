@@ -43,21 +43,21 @@
     </aside>
 <main class="app">
     <header class="topbar">
-      <div class="topbar-title"><span class="finance-mobile-mark"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg></span><div><h1>รายรับ-รายจ่ายของฉัน</h1><span id="layoutPageName" class="finance-page-name">ภาพรวมการเงิน</span></div></div>
+      <div class="topbar-title"><span class="finance-mobile-mark"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg></span><div><h1>รายรับ-รายจ่ายของฉัน</h1></div></div>
       <div class="topbar-actions"><button type="button" class="finance-desktop-add" onclick="openEntryDialog()"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>เพิ่มรายการ</span></button><div id="currentMonth" class="month-pill">เดือนปัจจุบัน</div><button id="recurringShortcut" class="recurring-shortcut" onclick="showPage('Recurring')"><svg class="icon"><use href="#icon-repeat"></use></svg> รายการประจำ</button><button class="help-trigger" onclick="openHelp()" aria-label="เปิดคู่มือวิธีใช้">? วิธีใช้</button></div>
     </header>
 
     <section id="connectionError" class="connection-error hidden" role="alert"></section>
     <div id="syncStatus" class="sync-status" data-cache="miss" role="status" aria-live="polite">กำลังโหลดข้อมูลล่าสุด...</div>
     <div id="pageDashboard" class="page">
-<div class="finance-dashboard-heading"><div><h2>ภาพรวมการเงิน</h2><p>ยอดเงิน บัญชี และรายการล่าสุดของคุณ</p></div><span class="finance-heading-label">สมุดการเงินของฉัน</span></div>
+
 <div id="cloudSetup" class="card section-card hidden"><h3>เริ่มฐานข้อมูลใหม่</h3><p>เพิ่มบัญชีโดยระบุยอดเริ่มต้นและวันที่เอง ระบบยังไม่ได้นำประวัติจากเว็บเดิมมาใช้</p><button class="primary" onclick="openCloudAccount()">เพิ่มบัญชี</button></div>
 <div id="financeOverview" class="finance-overview">
 <section class="hero card">
       <div class="hero-heading"><span>เงินพร้อมใช้</span><span class="hero-mark"><svg class="icon"><use href="#icon-wallet"></use></svg></span></div>
       <div id="cash" class="hero-money">฿0.00</div>
-      <div class="hero-caption">ยอดเงินจริงในบัญชีที่เลือก รวมเงินบริษัทที่อยู่ในบัญชีเหล่านี้</div>
-      <button class="dashboard-company-funds" onclick="showPage('Company')" aria-label="เปิดสมุดบริษัทเพื่อดูยอดสุทธิ"><span class="dashboard-company-icon"><svg class="icon"><use href="#icon-company"></use></svg></span><span class="dashboard-company-copy">ยอดสุทธิบริษัท<small id="dashboardCompanyNetCaption">กำลังอ่านสมุดบริษัท…</small></span><b id="dashboardCompanyHeld">—</b><span class="dashboard-company-arrow" aria-hidden="true">›</span></button>
+
+      <button class="dashboard-company-funds" onclick="showPage('Company')" aria-label="เปิดสมุดบริษัทเพื่อดูยอดสุทธิ"><span class="dashboard-company-icon"><svg class="icon"><use href="#icon-company"></use></svg></span><span class="dashboard-company-copy">ยอดเงินบริษัท</span><b id="dashboardCompanyHeld">—</b><span class="dashboard-company-arrow" aria-hidden="true">›</span></button>
       <div class="balance-formula" aria-label="ที่มาของยอดเงินทั้งหมด">
         <span>ยอดเริ่มต้น <b id="openingFlow">฿0.00</b></span>
         <span>+ เงินเข้า <b id="inflowFlow">฿0.00</b></span>
@@ -75,7 +75,7 @@
 <section class="summary-grid">
       <div class="card metric metric-income"><span class="metric-icon"><svg class="icon"><use href="#icon-income"></use></svg></span><span>รายรับ</span><b id="income">฿0.00</b><small>รายได้จริง</small></div>
       <div class="card metric metric-expense"><span class="metric-icon"><svg class="icon"><use href="#icon-expense"></use></svg></span><span>รายจ่ายส่วนตัว</span><b id="personal">฿0.00</b><small>เงินที่จ่ายออก</small></div>
-      <div class="card metric metric-company"><span class="metric-icon"><svg class="icon"><use href="#icon-company"></use></svg></span><span>บริษัทค้างคืน</span><b id="company">฿0.00</b><small>เงินที่ออกแทน</small></div>
+      <div id="companyReserveCard" class="card metric metric-company"><span class="metric-icon"><svg class="icon"><use href="#icon-company"></use></svg></span><span id="companyReserveLabel">สำรองจ่าย</span><b id="company">—</b><small>เงินที่ออกแทน</small></div>
       <div class="card metric metric-debt"><span class="metric-icon"><svg class="icon"><use href="#icon-debt"></use></svg></span><span>หนี้คงเหลือ</span><b id="debt">฿0.00</b><small>ยอดที่ยังต้องจ่าย</small></div>
     </section>
 
@@ -94,8 +94,8 @@
     </section>
 
     <section class="card section-card">
-      <div class="section-title"><span class="section-icon"><svg class="icon"><use href="#icon-list"></use></svg></span><div><b>รายการล่าสุด</b><small>รายการรับ-จ่ายล่าสุดของคุณ</small></div></div>
-      <div id="latestList" class="list finance-latest"><div class="empty">กำลังโหลด...</div></div>
+      <div class="section-title"><span class="section-icon"><svg class="icon"><use href="#icon-list"></use></svg></span><div><b>รายการล่าสุด</b></div></div>
+      <div id="latestList" class="list finance-ledger finance-latest"><div class="empty">กำลังโหลด...</div></div>
     </section>
     </div>
     </div>
@@ -196,11 +196,11 @@
         <p><strong>เบี้ยเลี้ยงให้ตัวเอง</strong> ใช้เมื่อเงินบริษัทในบัญชีของคุณเปลี่ยนเป็นสิทธิ์ของคุณแล้ว ระบบลดเงินบริษัทและเพิ่มรายได้ส่วนตัวโดยไม่เปลี่ยนยอดบัญชี ต้องมีเงินล่วงหน้าเพียงพอ หากย้ายเงินเข้าบัญชีอื่น ให้บันทึกโอนเงินต่างหาก</p>
         <p><strong>เบี้ยเลี้ยงให้คนอื่น</strong> ใส่ชื่อผู้รับ หมวดเบี้ยเลี้ยง จำนวนและบัญชีที่จ่าย เงินออกจากบัญชีจริง อย่าบันทึกรายจ่ายเดียวกันซ้ำในฟอร์มทั่วไป</p>
         <p>โปรเจกต์จบแล้ว ใช้ <strong>ย้ายเงินเหลือไปโปรเจกต์อื่น</strong> หรือระบุปลายทางเป็น <strong>กองกลางบริษัท</strong> การย้ายนี้เปลี่ยนการจัดสรรเท่านั้น หากโอนเงินจริงระหว่างบัญชีให้บันทึกโอนเงินแยก หรือใช้ <strong>คืนเงินล่วงหน้าบริษัท</strong> เมื่อคืนเงินจริง</p>
-        <p>ยอดบัญชีและเงินพร้อมใช้ยังรวมเงินบริษัทที่อยู่ในบัญชี ให้ดู <strong>ยอดสุทธิบริษัท</strong> ซึ่งเป็นเงินรับลบเงินจ่ายทั้งหมดตามสมุดบริษัทประกอบ ยอดสุทธินี้ไม่หักจากยอดบัญชีซ้ำ รายการพิเศษแก้โดยยกเลิกแล้วบันทึกใหม่ ระบบจะป้องกันการเปลี่ยนที่ทำให้เงินล่วงหน้าไม่พอหรือกระทบเงินคืนที่จับคู่แล้ว</p>
+        <p>ยอดบัญชีและเงินพร้อมใช้ยังรวมเงินบริษัทที่อยู่ในบัญชี ให้ดู <strong>ยอดเงินบริษัท</strong> ซึ่งเป็นเงินรับลบเงินจ่ายทั้งหมดตามสมุดบริษัทประกอบ ยอดสุทธินี้ไม่หักจากยอดบัญชีซ้ำ รายการพิเศษแก้โดยยกเลิกแล้วบันทึกใหม่ ระบบจะป้องกันการเปลี่ยนที่ทำให้เงินล่วงหน้าไม่พอหรือกระทบเงินคืนที่จับคู่แล้ว</p>
       </div></details>
       <details><summary>รายจ่ายส่วนตัวและรายจ่ายบริษัท</summary><div>
         <p>เมื่อจ่ายเงินของตัวเอง เลือก <strong>รายจ่ายส่วนตัว</strong> และบัญชีที่จ่ายจริง</p>
-        <p>เมื่อออกเงินแทนบริษัท เลือก <strong>รายจ่ายบริษัท</strong> ระบบจะลดเงินในบัญชีและเพิ่มยอดบริษัทค้างคืน ช่องโปรเจกต์จะแสดงเฉพาะแบบนี้ และเลือกค่าน้ำมันหรือค่าแก๊สจากหมวดหมู่ได้</p>
+        <p>เพิ่มค่าใช้จ่ายบริษัทจากแท็บ <strong>บริษัท</strong> โดยเลือกบัญชีที่จ่ายจริง ระบบจะส่งรายการมาอัปเดตยอดบัญชีให้อัตโนมัติ</p>
       </div></details>
       <details><summary>เงินคืนบริษัทต่างจาก Refund อย่างไร</summary><div>
         <p>เมื่อบริษัทคืนเงินที่ออกแทน ให้ไปหน้า <strong>บริษัท → บันทึกเงินคืนบริษัท</strong> ตรวจการจับคู่รายการก่อนบันทึก จับคู่บางส่วนได้ ยอดบริษัทค้างคืนจะลดลง และไม่ถูกนับเป็นรายได้จริงซ้ำ</p>
@@ -248,16 +248,15 @@
 
   <dialog id="entryDialog">
     <div class="dialog-body">
-      <div class="dialog-head"><div><div class="eyebrow">รายการเงิน</div><h2 id="entryDialogTitle">เพิ่มรายการ</h2></div><button class="close" onclick="cancelDialog('entryDialog')">×</button></div>
+      <div class="dialog-head"><div><h2 id="entryDialogTitle">เพิ่มรายการ</h2></div><button class="close" aria-label="ปิดฟอร์ม" onclick="cancelDialog('entryDialog')">×</button></div>
       <div class="type-switch">
         <button type="button" data-entry-kind="PERSONAL" class="active" aria-pressed="true" onclick="selectType('EXPENSE','PERSONAL')">รายจ่ายส่วนตัว</button>
-        <button type="button" data-entry-kind="COMPANY" aria-pressed="false" onclick="selectType('EXPENSE','COMPANY')">รายจ่ายบริษัท</button>
         <button type="button" data-entry-kind="INCOME" aria-pressed="false" onclick="selectType('INCOME')">รายรับ</button>
         <button type="button" data-entry-kind="TRANSFER" aria-pressed="false" onclick="selectType('TRANSFER')">โอนเงิน</button>
       </div>
 
+      <div class="field entry-amount"><label>จำนวนเงิน</label><input id="amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
       <div class="field"><label>วันที่</label><input id="txDate" type="date"></div>
-      <div class="field"><label>จำนวนเงิน</label><input id="amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
       <div class="field"><label id="accountLabel">บัญชีที่ใช้จ่าย</label><select id="account" class="hidden"></select><button id="accountPickerButton" class="account-picker-button" type="button" onclick="openAccountPicker('account')">เลือกบัญชี</button></div>
       <div class="field hidden" id="toAccountField"><label>บัญชีปลายทาง</label><select id="toAccount" class="hidden"></select><button id="toAccountPickerButton" class="account-picker-button" type="button" onclick="openAccountPicker('toAccount')">เลือกบัญชีปลายทาง</button></div>
       <div class="field hidden" id="ownerField"><label>รายจ่ายนี้เป็นของใคร</label><select id="owner"><option value="PERSONAL">ส่วนตัว</option><option value="COMPANY">บริษัท</option></select></div>

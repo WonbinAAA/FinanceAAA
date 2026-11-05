@@ -51,7 +51,7 @@ function refineWorkspaceHtml(html) {
   html = html.replace('id="transactionList" class="list transaction-cards"', 'id="transactionList" class="list finance-ledger"');
   html = html.replace('id="companyTransactionList" class="list"', 'id="companyTransactionList" class="list finance-ledger"');
   html = html.replace('id="latestList" class="list"', 'id="latestList" class="list finance-latest"');
-  return html;
+  return refineRequestedWorkspace(html);
 }
 
 export function applyLayoutJavaScript(js) {
@@ -67,6 +67,7 @@ export function applyLayoutJavaScript(js) {
 }
 
 function refineLedgerJavaScript(js) {
+  js=refineRequestedJavaScript(js);
   js=js.replace("$('dashboardCompanyHeld').textContent = money(data.company_advance || 0);",'void window.refreshCompanyLedgerNet();');
   const companyUrl='https://company-expenses-ledger.sugrid-kumpa.workers.dev/finance/?from=finance#transactions';
   js=js.replaceAll('https://company-expenses-ledger.sugrid-kumpa.workers.dev/?from=finance#transactions',companyUrl);
@@ -79,5 +80,35 @@ function refineLedgerJavaScript(js) {
   }
   js=js.replace("$('transactionList').innerHTML = items.length ? items.map(transactionRow).join('')", "$('transactionList').innerHTML = items.length ? renderLedgerDays(items)");
   js=js.replace("companyTransactions.map(transactionRow).join('')", 'renderLedgerDays(companyTransactions)');
+  return js;
+}
+
+function refineRequestedWorkspace(html){
+  html=html.replace(/<div class="finance-dashboard-heading">[\s\S]*?<\/div><span class="finance-heading-label">[\s\S]*?<\/span><\/div>/,'');
+  html=html.replace(/<span id="layoutPageName"[^>]*>[\s\S]*?<\/span>/,'');
+  html=html.replace('<small>รายการรับ-จ่ายล่าสุดของคุณ</small>','');
+  html=html.replace(/<p[^>]*>ยอดเงินจริงในบัญชีที่เลือก รวมเงินบริษัทที่อยู่ในบัญชีเหล่านี้<\/p>/,'');
+  html=html.replace('<div class="hero-caption">ยอดเงินจริงในบัญชีที่เลือก รวมเงินบริษัทที่อยู่ในบัญชีเหล่านี้</div>','');
+  html=html.replace('ยอดสุทธิบริษัท<small id="dashboardCompanyNetCaption">กำลังอ่านสมุดบริษัท…</small>','ยอดเงินบริษัท');
+  html=html.replace('<span>บริษัทค้างคืน</span><b id="company">฿0.00</b><small>เงินที่ออกแทน</small>','<span id="companyReserveLabel">สำรองจ่าย</span><b id="company">—</b><small>เงินที่ออกแทน</small>');
+  html=html.replace('<div class="card metric metric-company">','<div id="companyReserveCard" class="card metric metric-company">');
+  html=html.replace('<strong>ยอดสุทธิบริษัท</strong>','<strong>ยอดเงินบริษัท</strong>');
+  html=html.replace('id="latestList" class="list finance-latest"','id="latestList" class="list finance-ledger finance-latest"');
+  html=html.replace('<div class="eyebrow">รายการเงิน</div>','');
+  html=html.replace('<p>เมื่อออกเงินแทนบริษัท เลือก <strong>รายจ่ายบริษัท</strong> ระบบจะลดเงินในบัญชีและเพิ่มยอดบริษัทค้างคืน ช่องโปรเจกต์จะแสดงเฉพาะแบบนี้ และเลือกค่าน้ำมันหรือค่าแก๊สจากหมวดหมู่ได้</p>','<p>เพิ่มค่าใช้จ่ายบริษัทจากแท็บ <strong>บริษัท</strong> โดยเลือกบัญชีที่จ่ายจริง ระบบจะส่งรายการมาอัปเดตยอดบัญชีให้อัตโนมัติ</p>');
+  html=html.replace(/\s*<button type="button" data-entry-kind="COMPANY"[^>]*>[\s\S]*?<\/button>/,'');
+  html=html.replace('<button class="close" onclick="cancelDialog(\'entryDialog\')">×</button>','<button class="close" aria-label="ปิดฟอร์ม" onclick="cancelDialog(\'entryDialog\')">×</button>');
+  const day='<div class="field"><label>วันที่</label><input id="txDate" type="date"></div>';
+  const money='<div class="field"><label>จำนวนเงิน</label><input id="amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>';
+  html=html.replace(day+'\n      '+money,money.replace('class="field"','class="field entry-amount"')+'\n      '+day);
+  return html.replace(/^[ \t]+$/gm,'');
+}
+function refineRequestedJavaScript(js){
+  js=js.replace("$('company').textContent = money(data.company_receivable);",'// Reserve display is read from the company book, independently of bank cash.');
+  js=js.replace("$('latestList').innerHTML = items.length ? items.map(transactionRow).join('')","$('latestList').innerHTML = items.length ? renderLedgerDays(items)");
+  if(!js.includes('preferredExpenseAccount')){
+    js=js.replace("  selectType('EXPENSE');\n}","  selectType('EXPENSE');\n  const preferredExpenseAccount=BOOT?.accounts?.find(a=>String(a.account_name||'').trim()==='กรุงไทย');\n  if(preferredExpenseAccount) $('account').value=preferredExpenseAccount.account_id;\n  syncAccountPickerButtons();\n}");
+  }
+  if(!js.includes('Company entries are created in the source book'))js=js.replace("function selectType(type, owner = 'PERSONAL') {","function selectType(type, owner = 'PERSONAL') {\n  // Company entries are created in the source book; historical edit values stay intact.\n  if(type==='EXPENSE'&&owner==='COMPANY'&&!selectedTx){showPage('Company');return;}\n  $('entryDialog').dataset.entryType=type;");
   return js;
 }

@@ -29,7 +29,7 @@ test('HTTP summary is authenticated and read-only, without changing the money sn
  assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM ledger_records').first()).n,0);
 });
 function browser(fetcher){
- const nodes=new Map(['dashboardCompanyHeld','dashboardCompanyNetCaption','cash'].map(id=>[id,{textContent:id==='cash'?'unchanged cash':'',attributes:{},classes:{},setAttribute(k,v){this.attributes[k]=v;},removeAttribute(k){delete this.attributes[k];},classList:{toggle(){}}}]));
+ const nodes=new Map(['dashboardCompanyHeld','dashboardCompanyNetCaption','cash','company','companyReserveCard'].map(id=>{const node={textContent:id==='cash'?'unchanged cash':'',attributes:{},classes:{},setAttribute(k,v){this.attributes[k]=v;},removeAttribute(k){delete this.attributes[k];}};node.classList={toggle(k,v){node.classes[k]=v;}};return [id,node];}));
  const card={attributes:{},classes:{},setAttribute(k,v){this.attributes[k]=v;},removeAttribute(k){delete this.attributes[k];}};card.classList={toggle(k,v){card.classes[k]=v;}};
  const context={cloudSession:async()=>({}),fetch:fetcher,document:{getElementById:id=>nodes.get(id),querySelector:()=>card}};context.window=context;
  vm.runInNewContext(readFileSync(new URL('../public/company-net.js',import.meta.url),'utf8'),context);return {context,nodes,card};
@@ -38,4 +38,10 @@ test('dashboard paints the book deficit while bank cash stays untouched; failure
  let fail=false;const {context,nodes,card}=browser(async()=>fail?new Response('',{status:503}):Response.json(summary()));
  await context.refreshCompanyLedgerNet();assert.equal(nodes.get('dashboardCompanyHeld').textContent,'−฿29.99');assert.equal(nodes.get('cash').textContent,'unchanged cash');assert.equal(card.classes['company-net-negative'],true);
  fail=true;await context.refreshCompanyLedgerNet();assert.equal(nodes.get('dashboardCompanyHeld').textContent,'—');assert.match(nodes.get('dashboardCompanyNetCaption').textContent,/อ่านยอดไม่สำเร็จ/);assert.equal(nodes.get('cash').textContent,'unchanged cash');
+});
+test('reserve is the book deficit only; positive, zero and deficit states use distinct colors without a visible caption',async()=>{
+ let data=summary();const {context,nodes,card}=browser(async()=>Response.json(data));nodes.delete('dashboardCompanyNetCaption');
+ await context.refreshCompanyLedgerNet();assert.equal(nodes.get('company').textContent,'฿29.99');assert.equal(nodes.get('companyReserveCard').classes['is-reserve'],true);assert.equal(card.classes['company-net-negative'],true);
+ data=summary({income_cents:13000,expense_cents:13000,net_cents:0});await context.refreshCompanyLedgerNet();assert.equal(nodes.get('company').textContent,'฿0.00');assert.equal(nodes.get('companyReserveCard').classes['is-reserve'],false);assert.equal(card.classes['company-net-negative'],false);assert.equal(card.classes['company-net-positive'],false);
+ data=summary({income_cents:15000,expense_cents:13000,net_cents:2000});await context.refreshCompanyLedgerNet();assert.equal(nodes.get('dashboardCompanyHeld').textContent,'+฿20.00');assert.equal(nodes.get('company').textContent,'฿0.00');assert.equal(card.classes['company-net-positive'],true);assert.equal(nodes.get('cash').textContent,'unchanged cash');
 });
