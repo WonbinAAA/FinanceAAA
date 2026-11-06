@@ -3,6 +3,7 @@ import {executeFinance} from './finance.js';
 import {sha256} from './auth.js';
 import {loadSnapshot,commitSnapshot,receipt} from './storage.js';
 import {moneyCents} from './schema.js';
+import {isCompanyCategory,isCompanyRecord} from './company-policy.js';
 
 const SOURCE='company-expenses-ledger';
 const fail=(message,code='COMPANY_LINK_REVIEW')=>{throw new AppError(message,409,code);};
@@ -185,9 +186,32 @@ export async function installCompanyBaseline(env,ownerId,plan){
   return commitSnapshot(env.DB,before,snapshot,'company-baseline-'+crypto.randomUUID(),await linkHash(plan),{ok:true,sources:ids.size,groups:targets.size},statements);
 }
 
-export async function protectCompanyWrites(db,method,args){
-  if(['updateTransaction','voidTransaction','confirmDraft','reclassifyCompanyAdvance'].includes(method)){
+const companyBrowserMethods = new Set([
+  'createCompanyProject','closeCompanyProject','reclassifyCompanyAdvance','getCompanySummary',
+  'getCompanyFundingPreview','getCompanyReceiptPreview','getCompanyProjectClosePreview',
+  'getCompanyAdvanceCandidates','getReimbursementPreview',
+]);
+
+export async function protectCompanyWrites(db,method,args,snapshot){
+  const requireSource = () => fail('กรุณาเพิ่ม แก้ไข หรือยกเลิกรายการที่เว็บบริษัทค่ะ','COMPANY_SOURCE_REQUIRED');
+  if(companyBrowserMethods.has(method)) requireSource();
+  const categories=snapshot?.tables['หมวดหมู่'].rows || [];
+  const category=id=>categories.find(item=>item.category_id===id);
+  const company=record=>isCompanyRecord(record,category(record?.category_id));
+  if(['updateTransaction','voidTransaction','confirmDraft'].includes(method)){
     if(await db.prepare('SELECT 1 FROM company_link_groups WHERE transaction_id=?').bind(String(args?.[0]||'')).first())
-      fail('รายการนี้เชื่อมจากเว็บค่าใช้จ่ายบริษัท กรุณาเพิ่ม แก้ไข หรือยกเลิกที่เว็บบริษัทค่ะ','COMPANY_SOURCE_REQUIRED');
+      requireSource();
+    if(company(snapshot && row(snapshot,args[0]))||company(args[1])) requireSource();
+  }
+  if(['saveTransaction','createRecurring'].includes(method)&&company(args[0])) requireSource();
+  if(method==='payRecurring'){
+    const recurring=snapshot.tables['รายการประจำ'].rows.find(item=>item.recurring_id===args[0]?.recurring_id);
+    if(company(recurring)) requireSource();
+  }
+  if(method==='createCategory'&&isCompanyCategory(args[0])) requireSource();
+  if(['updateCategory','renameCategory','setCategoryActive','moveCategory'].includes(method)){
+    if(isCompanyCategory(category(args[0]))||isCompanyCategory(args[1])
+      ||method==='renameCategory'&&isCompanyCategory({category_name:args[1]})
+      ||method==='moveCategory'&&args[2]==='OFFICE') requireSource();
   }
 }

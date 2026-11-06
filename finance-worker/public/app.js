@@ -111,93 +111,33 @@ function categoryFits(item, type, owner = 'PERSONAL') {
   if (type !== 'EXPENSE') return true;
   return categoryGroup(item) === 'BOTH' || categoryGroup(item) === (owner === 'COMPANY' ? 'OFFICE' : 'EXPENSE');
 }
-function categories(type, owner = 'PERSONAL') {
-  return (BOOT?.categories || []).filter(item => categoryFits(item, type, owner));
-}
-let projectManagerSource = '';
-let projectBusy = false;
-function projectCatalog() { return BOOT?.company?.project_catalog || []; }
-function fillProjectSelects() {
-  const active=projectCatalog().filter(p=>p.status!=='CLOSED');
-  ['projectName','companyFundsProject','companyFundsTarget'].forEach(id=>{
-    const el=$(id),current=el.value,hasPool=id==='companyFundsTarget';
-    const historical=id==='projectName'&&selectedTx?.status==='ACTIVE'?selectedTx.project_name:'';
-    const archived=historical&&!active.some(p=>p.project_name===historical);
-    el.innerHTML=option('',hasPool?'เลือกปลายทาง':id==='projectName'?'ไม่ระบุโปรเจกต์':'เลือกโปรเจกต์')+
-      (hasPool?option('กองกลางบริษัท','กองกลางบริษัท'):'')+active.map(p=>option(p.project_name,p.project_name)).join('')+
-      (archived?option(historical,historical+' (ปิดแล้ว · รายการเดิม)'):'');
-    el.value=active.some(p=>p.project_name===current)||hasPool&&current==='กองกลางบริษัท'||archived&&current===historical?current:'';
-  });
-}
-function renderProjectManager() {
-  const items=projectCatalog(),active=items.filter(p=>p.status!=='CLOSED'),closed=items.filter(p=>p.status==='CLOSED');
-  $('projectManagerList').innerHTML=active.map(p=>`<div class="project-manager-row"><div><b>${esc(p.project_name)}</b><small>เงินเหลือ ${money(p.remaining)}</small></div><button class="secondary" data-close-project="${esc(p.project_name)}" ${projectBusy?'disabled':''}>ปิดโปรเจกต์</button></div>`).join('')||'<div class="empty">ยังไม่มีโปรเจกต์ที่ใช้งานอยู่</div>';
-  $('projectManagerHistory').innerHTML=closed.length?`<details><summary>โปรเจกต์ที่ปิดแล้ว (${closed.length})</summary>${closed.map(p=>`<div class="project-manager-row is-closed"><div><b>${esc(p.project_name)}</b><small>ปิดแล้ว · เก็บประวัติรายการเดิมไว้</small></div></div>`).join('')}</details>`:'';
-  $('projectAddButton').disabled=projectBusy;
-}
-function openProjectManager(source='') {
-  if(!requireFreshData()) return;
-  projectManagerSource=source;
-  $('newCompanyProjectName').value='';
-  renderProjectManager();$('projectManagerDialog').showModal();
-}
-async function submitCompanyProject() {
-  if(projectBusy) return;
-  const name=$('newCompanyProjectName').value.trim();
-  if(!name) return notify('warning','กรุณากรอกชื่อโปรเจกต์');
-  projectBusy=true;renderProjectManager();
-  try {
-    const result=await server('createCompanyProject',name);
-    renderMutation(result);
-    if(projectManagerSource) $(projectManagerSource).value=result.project_name;
-    $('newCompanyProjectName').value='';
-    if(projectManagerSource) $('projectManagerDialog').close();
-    notify('success','เพิ่มโปรเจกต์แล้ว','ใช้รายชื่อเดียวกันทุกฟอร์ม');
-  } catch(error) { fail(error); }
-  finally {projectBusy=false;renderProjectManager();}
-}
-async function closeSelectedCompanyProject(name) {
-  if(projectBusy) return;
-  projectBusy=true;renderProjectManager();
-  try {
-    const preview=await server('getCompanyProjectClosePreview',name);
-    const answer=await sweet({icon:'question',title:'ปิดโปรเจกต์ '+name+'?',
-      text:(preview.remaining>0?'เงินเหลือ '+money(preview.remaining)+' จะย้ายเข้ากองกลางบริษัท':'โปรเจกต์นี้ไม่มีเงินเหลือให้ย้าย')+' แล้วนำออกจากตัวเลือกทุกฟอร์ม ประวัติเดิมและยอดค้างคืนยังอยู่ ยอดเงินในบัญชีไม่เปลี่ยน',
-      showCancelButton:true,confirmButtonText:preview.remaining>0?'ย้ายเงินและปิดโปรเจกต์':'ปิดโปรเจกต์',cancelButtonText:'กลับ'});
-    if(!answer.isConfirmed) return;
-    const result=await server('closeCompanyProject',name,preview.remaining);
-    renderMutation(result);
-    notify('success','ปิดโปรเจกต์แล้ว',result.moved_amount>0?'ย้ายเข้ากองกลาง '+money(result.moved_amount):'เก็บประวัติรายการเดิมไว้แล้ว');
-  } catch(error) { fail(error); }
-  finally {projectBusy=false;renderProjectManager();}
+function categories(type) {
+  return (BOOT?.categories || []).filter(item => !item.company_only && categoryFits(item, type));
 }
 function fillCategories(type) {
   const selected = $('category').value;
   $('categoryField').classList.toggle('hidden', type === 'TRANSFER');
   $('categoryLabel').textContent = type === 'INCOME' ? 'ประเภทรายรับ' : 'ประเภทรายจ่าย';
-  const owner = type === 'EXPENSE' ? $('owner').value : '';
-  const available = categories(type, owner);
+  const available = categories(type);
   const historical = (BOOT?.filterCategories || []).find(item =>
-    item.category_id === selectedTx?.category_id && item.transaction_type === type &&
+    !item.company_only && item.category_id === selectedTx?.category_id && item.transaction_type === type &&
     !available.some(active => active.category_id === item.category_id));
   $('category').innerHTML = type === 'TRANSFER' ? '' : [...available, ...(historical ? [historical] : [])]
     .map(item => option(item.category_id, item.category_name + (item === historical ? ' (รายการเดิม)' : ''))).join('');
   if ([...available, historical].some(item => item?.category_id === selected)) $('category').value = selected;
-  toggleRefundField();
 }
 function fillRecurringCategories() {
   const selected = $('recurringCategory').value;
-  const type = $('recurringType').value, owner = $('recurringOwner').value;
-  $('recurringCategory').innerHTML = categories(type, owner)
+  const type = $('recurringType').value;
+  $('recurringCategory').innerHTML = categories(type)
     .map(item => option(item.category_id, item.category_name)).join('');
-  if (categories(type, owner).some(item => item.category_id === selected)) $('recurringCategory').value = selected;
-  $('recurringOwner').parentElement.classList.toggle('hidden', type !== 'EXPENSE');
+  if (categories(type).some(item => item.category_id === selected)) $('recurringCategory').value = selected;
 }
 function categoryActive(item) { return !['FALSE', '0'].includes(String(item.is_active).toUpperCase()); }
 function renderCategoryManager() {
   const group = $('categoryManageType').value;
-  const items = categoryItems.filter(item => categoryGroup(item) === group ||
-    (categoryGroup(item) === 'BOTH' && ['EXPENSE', 'OFFICE'].includes(group)));
+  const items = categoryItems.filter(item => !item.company_only && (categoryGroup(item) === group ||
+    (categoryGroup(item) === 'BOTH' && group === 'EXPENSE')));
   $('categoryManagerList').innerHTML = items.length ? items.map(item => `<div class="category-manager-row ${categoryActive(item) ? '' : 'is-inactive'}">
     <div><b>${esc(item.category_name)}</b><small>${item.is_system ? 'หมวดระบบ' : categoryGroup(item) === 'BOTH' ? 'ใช้ได้ทั้งส่วนตัวและบริษัท' : categoryActive(item) ? 'ใช้งานอยู่' : 'หยุดใช้ · รายการเก่ายังอยู่'}</small></div>
     ${item.is_system ? '' : `<div class="inline-actions">${categoryActive(item) ? `<button class="secondary category-top" data-category-move="${esc(item.category_id)}" data-direction="TOP" aria-label="ย้าย ${esc(item.category_name)} ขึ้นบนสุด">บนสุด</button>
@@ -218,10 +158,7 @@ function resetCategoryEditor() {
 async function openCategoryDialog(source) {
   if (!requireFreshData()) return;
   categoryDialogSource = source;
-  $('categoryManageType').value = source === 'entry' && selectedType !== 'TRANSFER'
-    ? selectedType === 'INCOME' ? 'INCOME' : $('owner').value === 'COMPANY' ? 'OFFICE' : 'EXPENSE'
-    : $('filterType').value === 'INCOME' ? 'INCOME'
-      : $('filterOwner').value === 'COMPANY' ? 'OFFICE' : 'EXPENSE';
+  $('categoryManageType').value = (source === 'entry' ? selectedType : $('filterType').value) === 'INCOME' ? 'INCOME' : 'EXPENSE';
   resetCategoryEditor();
   try {
     categoryItems = await server('getCategories');
@@ -231,7 +168,7 @@ async function openCategoryDialog(source) {
 }
 function editCategory(id) {
   const item = categoryItems.find(row => row.category_id === id);
-  if (!item || item.is_system) return;
+  if (!item || item.is_system || item.company_only) return;
   categoryEditingId = id;
   $('categoryManageType').disabled = true;
   $('categoryManageName').value = item.category_name;
@@ -251,7 +188,6 @@ function applyCategoryResult(result, selectNew) {
   renderTransactionFilterCategories(filter);
   fillCategories(selectedType);
   if (selectNew && categoryDialogSource === 'entry') $('category').value = result.id;
-  toggleRefundField();
   fillRecurringCategories();
   renderCategoryManager();
 }
@@ -306,77 +242,29 @@ async function changeCategoryOrder(id,direction) {
   } catch(error) { toast(error?.message || 'จัดลำดับหมวดหมู่ไม่สำเร็จ'); }
   finally { categoryBusy=false; }
 }
-function selectType(type, owner = 'PERSONAL') {
-  // Company entries are created in the source book; historical edit values stay intact.
-  if(type==='EXPENSE'&&owner==='COMPANY'&&!selectedTx){showPage('Company');return;}
+function selectType(type) {
   $('entryDialog').dataset.entryType=type;
   selectedType = type;
-  $('owner').value = type === 'EXPENSE' && owner === 'COMPANY' ? 'COMPANY' : 'PERSONAL';
-  const kind = type === 'EXPENSE' ? $('owner').value : type;
+  const kind = type === 'EXPENSE' ? 'PERSONAL' : type;
   document.querySelectorAll('.type-switch button').forEach(button => {
     const active = button.dataset.entryKind === kind;
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
   });
-  $('ownerField').classList.add('hidden');
-  $('projectShortcutField').classList.toggle('hidden', type !== 'EXPENSE' || kind !== 'COMPANY');
-  $('companyFundingField').classList.toggle('hidden',type!=='EXPENSE'||kind!=='COMPANY');
-  if(type==='EXPENSE'&&kind==='COMPANY') selectCompanyFunding($('companyFunding').value||'PERSONAL');
   $('toAccountField').classList.toggle('hidden', type !== 'TRANSFER');
   $('accountLabel').textContent = type === 'INCOME' ? 'บัญชีที่รับเงิน' : type === 'TRANSFER' ? 'บัญชีต้นทาง' : 'บัญชีที่ใช้จ่าย';
   fillCategories(type);
   syncAccountPickerButtons();
 }
-function selectCompanyFunding(source) {
-  $('companyFunding').value=source;
-  document.querySelectorAll('input[name="companyFundingChoice"]').forEach(el=>{el.checked=el.value===source;});
-  $('companyFundingHint').textContent=source==='POOL'?'กองกลางคงเหลือจากข้อมูลที่โหลด '+money(BOOT?.company?.pool?.remaining||0):source==='PROJECT'?'ระบุโปรเจกต์ด้านล่าง ระบบตรวจยอดก่อนบันทึก':'ยอดนี้จะเป็นบริษัทค้างคืนคุณ โดยไม่หักกองกลางหรือเงินโปรเจกต์';
-  $('projectShortcutField').classList.toggle('hidden',source==='POOL');
-}
-function isRefund() {
-  return selectedType === 'INCOME' && (BOOT?.categories || []).some(item =>
-    item.category_id === $('category').value && item.category_name === 'เงินคืนบริษัท');
-}
-let refundPreviewRequest = 0;
-let refundAmountAtPreview = null;
-let refundClaimsAtPreview = [];
-let refundDueAtPreview = 0;
-function updateRefundHint() {
-  let remaining = Number(BOOT?.company?.remaining || 0);
-  const oldCategory = (BOOT?.filterCategories || BOOT?.categories || []).find(c=>c.category_id===selectedTx?.category_id);
-  if(selectedTx?.status==='ACTIVE'&&oldCategory?.category_name==='เงินคืนบริษัท') remaining += Number(selectedTx.amount || 0)-Number(selectedTx.company_pool_amount||0);
-  $('refundBalanceHint').textContent = 'ยอดค้างคืนจากข้อมูลที่โหลด: ' + money(remaining);
-}
-function clearRefundPreview() {
-  refundPreviewRequest++;
-  refundAmountAtPreview = null;
-  refundClaimsAtPreview = [];
-  refundDueAtPreview = 0;
-  $('refundMatches').innerHTML = '';
-  $('refundPreviewButton').disabled = false;
-  $('refundPreviewButton').textContent = 'เลือกรายการที่ได้รับคืน';
-  $('refundFeedback').textContent = '';
-}
-function toggleRefundField() {
-  $('refundMatchField').classList.toggle('hidden', !isRefund() || $('draft').checked);
-  if (!isRefund()) clearRefundPreview();
-  else updateRefundHint();
-}
 function resetForm() {
-  clearRefundPreview();
   selectedTx = null;
   $('entryDialogTitle').textContent = 'เพิ่มรายการ';
   $('txDate').value = BOOT?.today || '';
   $('amount').value = '';
   $('description').value = '';
-  fillProjectSelects();
-  $('projectName').value='';
-  $('owner').value = 'PERSONAL';
-  $('companyFunding').value='PERSONAL';
   $('toAccount').value = '';
   $('draft').checked = false;
   $('draft').disabled = false;
-  $('refundMatches').innerHTML = '';
   $('saveButton').textContent = 'บันทึก';
   selectType('EXPENSE');
   const preferredExpenseAccount=BOOT?.accounts?.find(a=>String(a.account_name||'').trim()==='กรุงไทย');
@@ -395,111 +283,27 @@ function openEntryDialog() {
   return true;
 }
 function closeEntryDialog() { $('entryDialog').close(); }
-async function previewRefund() {
-  const amount = Number($('amount').value);
-  clearRefundPreview();
-  if(!isRefund()) return;
-  if(!Number.isFinite(amount)||amount<=0||Math.abs(amount*100-Math.round(amount*100))>0.000001) {
-    $('refundFeedback').textContent = 'กรุณากรอกยอดเงินคืนมากกว่า 0 และทศนิยมไม่เกิน 2 ตำแหน่ง';
-    return;
-  }
-  const request = refundPreviewRequest;
-  $('refundPreviewButton').disabled = true;
-  $('refundPreviewButton').textContent = 'กำลังตรวจยอดล่าสุด...';
-  try {
-    const review = await server('getCompanyReceiptPreview', amount, selectedTx?.transaction_id || '', []);
-    if(request!==refundPreviewRequest||!isRefund()||Number($('amount').value)!==amount) return;
-    const existing=Object.fromEntries((review.existing_allocations||[]).map(item=>[item.claim_id,item.amount]));
-    refundClaimsAtPreview=review.claims;
-    refundDueAtPreview=review.remaining;
-    $('refundMatches').innerHTML = review.claims.map(item => `<div class="refund-choice">
-      <label class="refund-choice-label"><input type="checkbox" data-refund-claim="${esc(item.claim_id)}" ${existing[item.claim_id]?'checked':''} onchange="updateRefundSelection()">
-      <span>${esc(item.description || item.claim_id)}<small>${dateTH(item.expense_date)} · ${esc(item.project_name || 'รายการทั่วไป · ไม่มีโปรเจกต์')}</small><small>ค้างคืน ${money(item.remaining_amount)}</small></span></label>
-      <label class="refund-choice-amount">ยอดที่ได้รับคืน<input type="number" inputmode="decimal" min="0.01" max="${item.remaining_amount}" step="0.01" data-claim="${esc(item.claim_id)}" value="${existing[item.claim_id]||item.remaining_amount}" ${existing[item.claim_id]?'':'disabled'} oninput="updateRefundSelection()" aria-label="ยอดรับคืน ${esc(item.description||item.claim_id)}"></label>
-    </div>`).join('');
-    refundAmountAtPreview = amount;
-    $('refundBalanceHint').textContent='ยอดค้างคืนล่าสุด: '+money(review.remaining);
-    updateRefundSelection();
-  } catch (error) {
-    if(request===refundPreviewRequest) $('refundFeedback').textContent = error?.message || 'ตรวจยอดไม่สำเร็จ กรุณาลองใหม่';
-  } finally {
-    if(request===refundPreviewRequest) {
-      $('refundPreviewButton').disabled = false;
-      $('refundPreviewButton').textContent = 'เลือกรายการที่ได้รับคืน';
-    }
-  }
-}
-function readRefundSelection() {
-  if(refundAmountAtPreview!==Number($('amount').value)) throw new Error('กรุณาเลือกรายการที่ได้รับคืนก่อนบันทึก');
-  const checked=new Set([...$('refundMatches').querySelectorAll('input[data-refund-claim]')].filter(el=>el.checked).map(el=>el.dataset.refundClaim));
-  const claims=Object.fromEntries(refundClaimsAtPreview.map(c=>[c.claim_id,c]));
-  const items=[...$('refundMatches').querySelectorAll('input[data-claim]')].filter(el=>checked.has(el.dataset.claim))
-    .map(el=>({claim_id:el.dataset.claim,amount:Number(el.value)}));
-  let total=0;
-  items.forEach(item=>{
-    if(!Number.isFinite(item.amount)||item.amount<=0||Math.abs(item.amount*100-Math.round(item.amount*100))>0.000001)
-      throw new Error('กรุณากรอกยอดรับคืนของรายการที่เลือกให้มากกว่า 0 และทศนิยมไม่เกิน 2 ตำแหน่ง');
-    if(!claims[item.claim_id]||Math.round(item.amount*100)>Math.round(claims[item.claim_id].remaining_amount*100)) throw new Error('ยอดรับคืนเกินยอดค้างของรายการที่เลือก');
-    total+=Math.round(item.amount*100);
-  });
-  if(total>Math.round(Number($('amount').value)*100)) throw new Error('ยอดที่เลือกคืนเกินเงินที่ได้รับจริง กรุณาปรับรายการหรือยอดรับคืน');
-  return items;
-}
-function updateRefundSelection() {
-  const checked=new Set([...$('refundMatches').querySelectorAll('input[data-refund-claim]')].filter(el=>el.checked).map(el=>el.dataset.refundClaim));
-  $('refundMatches').querySelectorAll('input[data-claim]').forEach(el=>{el.disabled=!checked.has(el.dataset.claim);});
-  try {
-    const items=readRefundSelection(),refund=items.reduce((sum,item)=>sum+Math.round(item.amount*100),0)/100;
-    $('refundFeedback').textContent=(items.length?'เลือกคืน '+items.length+' รายการ':'ยังไม่ได้เลือกรายการคืน')+' · คืนยอดออกแทน '+money(refund)+' · เข้ากองกลาง '+money((Math.round(refundAmountAtPreview*100)-Math.round(refund*100))/100)+' · ยังค้างคืน '+money((Math.round(refundDueAtPreview*100)-Math.round(refund*100))/100)+' — ยังไม่บันทึกจนกว่าจะกดบันทึก';
-  } catch(error) { $('refundFeedback').textContent=error.message; }
-}
 function formTransaction() {
-  const project = selectedTx || selectedType !== 'EXPENSE' || $('owner').value !== 'COMPANY'
-    ? '' : $('projectName').value.trim().replace(/\s+/g, ' ');
-  const detail = $('description').value.trim();
-  const input = {
-    project_name: selectedType === 'EXPENSE' && $('owner').value === 'COMPANY' ? $('projectName').value.trim().replace(/\s+/g,' ') : selectedTx?.company_kind ? selectedTx.project_name || '' : '',
-    company_kind: selectedTx?.company_kind || '', recipient: selectedTx?.recipient || '', to_project: selectedTx?.to_project || '',
-    company_funding:selectedType==='EXPENSE'&&$('owner').value==='COMPANY'?$('companyFunding').value||'PERSONAL':'',
+  return {
     transaction_type: selectedType, transaction_date: $('txDate').value,
     amount: Number($('amount').value), account_id: $('account').value,
     to_account_id: $('toAccount').value, category_id: $('category').value,
-    expense_owner: selectedType === 'EXPENSE' ? $('owner').value : '',
-    description: project && detail !== project && !detail.startsWith(project + ' | ')
-      ? project + (detail ? ' | ' + detail : '') : detail || project,
+    expense_owner: selectedType === 'EXPENSE' ? 'PERSONAL' : '',
+    description: $('description').value.trim(),
     status: $('draft').checked ? 'DRAFT' : 'ACTIVE',
     source_type: selectedTx?.source_type || 'WEB', attachment_url: selectedTx?.attachment_url || '',
     ai_status: selectedTx?.ai_status || 'NONE'
   };
-  if(input.company_funding==='POOL') input.project_name='';
-  if(isRefund()) input.company_surplus_to_pool=true;
-  if (isRefund() && input.status === 'ACTIVE') {
-    if (refundAmountAtPreview === input.amount) input.allocations = readRefundSelection();
-  }
-  return input;
 }
 async function saveCurrentTransaction() {
   const button = $('saveButton');
   if (button.disabled) return;
-  let input;
-  try { input=formTransaction(); }
-  catch(error) { $('refundFeedback').textContent=error.message;return; }
+  const input = formTransaction();
   if (!(input.amount > 0)) return notify('warning', 'กรุณากรอกจำนวนเงิน');
   if (selectedType === 'TRANSFER' && (!input.to_account_id || input.to_account_id === input.account_id)) return notify('warning', 'บัญชีปลายทางไม่ถูกต้อง');
   button.disabled = true;
   button.textContent = 'กำลังบันทึก...';
   try {
-    if(isRefund()&&input.status==='ACTIVE') {
-      if(!Array.isArray(input.allocations)) { await previewRefund();return; }
-      const review=await server('getCompanyReceiptPreview',input.amount,selectedTx?.transaction_id||'',input.allocations);
-      input.company_expected_refund=review.refund_amount;input.company_expected_pool=review.pool_amount;
-      if(review.pool_amount>0) {
-        const answer=await sweet({icon:'question',title:'ยืนยันแบ่งเงินรับบริษัท',text:'รับ '+money(input.amount)+' เข้าบัญชีครั้งเดียว คืนเงินที่ออกแทน '+money(review.refund_amount)+' และเก็บเข้ากองกลาง '+money(review.pool_amount),showCancelButton:true,confirmButtonText:'ยืนยันบันทึก',cancelButtonText:'กลับไปตรวจ'});
-        if(!answer.isConfirmed) return;
-        input.company_surplus_confirmed=true;
-      }
-    }
-    if(!await confirmCompanyFunding(input,selectedTx?.transaction_id||'')) return;
     let result;
     if (selectedTx?.status === 'DRAFT') result = await server('confirmDraft', selectedTx.transaction_id, input);
     else if (selectedTx) result = await server('updateTransaction', selectedTx.transaction_id, input);
@@ -508,22 +312,8 @@ async function saveCurrentTransaction() {
     closeEntryDialog();
     showPage('Dashboard');
     notify('success', 'บันทึกรายการแล้ว', input.status === 'DRAFT' ? 'ฉบับร่างยังไม่กระทบยอดเงินจริง' : 'ยอดเงินอัปเดตแล้ว');
-  } catch (error) {
-    if(isRefund()) $('refundFeedback').textContent = error?.message || 'บันทึกเงินคืนไม่สำเร็จ กรุณาตรวจยอดและลองใหม่';
-    else fail(error);
-  }
+  } catch (error) { fail(error); }
   finally { button.disabled = false; button.textContent = selectedTx ? 'บันทึกการแก้ไข' : 'บันทึก'; }
-}
-async function confirmCompanyFunding(input,id='') {
-  if(input.transaction_type!=='EXPENSE'||input.expense_owner!=='COMPANY'||!input.company_funding||input.company_kind==='RETURN') return true;
-  const review=await server('getCompanyFundingPreview',input,id);
-  input.company_expected_personal=review.personal_amount;
-  if(input.company_funding!=='PERSONAL'&&review.personal_amount>0) {
-    const answer=await sweet({icon:'question',title:'เงินบริษัทไม่พอ',text:'ใช้เงินบริษัท '+money(review.funded_amount)+' และออกเงินส่วนตัวส่วนที่ขาด '+money(review.personal_amount)+' ส่วนนี้จะเป็นยอดบริษัทค้างคืนคุณ',showCancelButton:true,confirmButtonText:'ยืนยันใช้เงินส่วนตัวส่วนที่ขาด',cancelButtonText:'กลับไปเลือกแหล่งเงิน'});
-    if(!answer.isConfirmed) return false;
-    input.company_shortfall_confirmed=true;
-  }
-  return true;
 }
 function renderDashboard(data) {
   $('cash').textContent = money(data.available_cash);
@@ -547,14 +337,15 @@ function renderMutation(result) {
   if (!result) return;
   refreshRequest++;
   if (BOOT) {
-    ['dashboard','latestTransactions','company','debts','recurring','accounts'].forEach(key=>{
+    ['dashboard','debts','recurring','accounts'].forEach(key=>{
       if(result[key]) BOOT[key]=result[key];
     });
   }
-  if (result.dashboard) renderDashboard(result.dashboard);
+  if (result.dashboard) {
+    renderDashboard(result.dashboard);
+    renderLatest();
+  }
   if (result.dashboard && BOOT?.accounts) renderAccounts(BOOT.accounts,result.dashboard.balances);
-  if (result.latestTransactions) renderLatest(result.latestTransactions);
-  if (result.company) renderCompany(result.company);
   if (result.debts) renderDebts(result.debts);
   if (result.recurring) renderRecurring(result.recurring);
 }
@@ -639,7 +430,6 @@ async function toggleAccountAvailable(id) {
     notify('success','อัปเดตบัญชีเงินพร้อมใช้แล้ว');
   } catch(error) { fail(error); }
 }
-function transactionRow(item) { return renderLedgerRow(item, {compact:true}); }
 async function renderLatest() {
   const request=++latestViewRequest;
   $('latestList').innerHTML='<div class="empty">กำลังโหลด...</div>';
@@ -651,27 +441,6 @@ async function renderLatest() {
     if(request!==latestViewRequest)return;
     $('latestList').innerHTML='<div class="empty">'+esc(error.message)+' <button class="secondary" onclick="renderLatest()">ลองใหม่</button></div>';
   }
-}
-function renderCompany(data) {
-  fillProjectSelects();
-  renderProjectManager();
-  $('companyPoolRemaining').textContent=money(data.pool?.remaining||0);
-  $('companyPoolReceived').textContent=money(data.pool?.received||0);
-  $('companyPoolSpent').textContent=money(data.pool?.spent||0);
-  $('companyAdvanceTotal').textContent = money(data.advance_remaining || 0);
-  const closedProjects=new Set(projectCatalog().filter(p=>p.status==='CLOSED').map(p=>p.project_name));
-  $('companyProjectList').innerHTML = (data.projects || []).map(p=>`<article class="company-project-card ${closedProjects.has(p.project_name)?'is-closed':''}"><div class="company-project-title"><span class="company-project-symbol" aria-hidden="true">▦</span><h4>${esc(p.project_name)}</h4><span class="company-project-state">${closedProjects.has(p.project_name)?'ปิดแล้ว':Number(p.remaining)>0?'มีเงินเหลือ':'ใช้ครบแล้ว'}</span></div><div class="company-project-remaining"><span>เงินเหลือในโปรเจกต์</span><b>${money(p.remaining)}</b></div><div class="company-project-breakdown"><div class="project-received"><span>รับล่วงหน้า</span><b>${money(p.received)}</b></div><div class="project-spent"><span>ใช้จ่ายแล้ว</span><b>${money(p.spent)}</b></div></div>${p.moved_out?`<p class="project-moved-note">ย้ายเงินออกแล้ว ${money(p.moved_out)}</p>`:''}</article>`).join('') || '<div class="card empty">ยังไม่มีเงินล่วงหน้าแยกตามโปรเจกต์<br>เริ่มจาก “รับเงินล่วงหน้า” ด้านล่าง</div>';
-  $('claimTotal').textContent = money(data.total);
-  $('claimReturned').textContent = money(data.returned);
-  $('claimRemaining').textContent = money(data.remaining);
-  const visibleClaims = data.claims.filter(item=>Number(item.claim_amount)>0&&Number(item.remaining_amount)>0);
-  $('claimList').innerHTML = visibleClaims.length ? visibleClaims.map(item => `<div class="list-row">
-    <div><div class="row-title">${esc(item.description || 'รายการบริษัท')}</div>
-    <div class="row-sub">${dateTH(item.expense_date)} · ใช้เงินล่วงหน้า ${money(item.advance_used || 0)} · คืนแล้ว ${money(item.returned_amount)}</div></div>
-    <div class="row-value company-claim-amount"><small>${Number(item.remaining_amount)>0?'ค้างคืน':'คืนครบแล้ว'}</small>${money(item.remaining_amount)}</div></div>`).join('') : '<div class="empty">ยังไม่มีรายการบริษัทค้างคืน</div>';
-  const companyTransactions=data.transactions||[];
-  $('companyTransactionList').innerHTML=companyTransactions.length?renderLedgerDays(companyTransactions):
-    '<div class="empty">ยังไม่มีรายการรับ–จ่ายบริษัท</div>';
 }
 function debtIcon(name) {
   const value = String(name || '').trim().toLowerCase();
@@ -700,7 +469,12 @@ function renderDebts(items) {
       <button class="secondary" data-debt="${esc(item.debt_id)}" data-action="due">ยอดเดือนนี้</button>
       <button class="primary" data-debt="${esc(item.debt_id)}" data-action="pay">ชำระหนี้</button></div></div>`).join('') : '<div class="empty">ไม่มีหนี้คงเหลือแล้ว<br>ประวัติหนี้และรายการชำระยังเก็บไว้ตามเดิม</div>';
 }
+function isCompanyEntry(item) {
+  return item.expense_owner === 'COMPANY' || Boolean(item.company_kind || item.company_funding || item.project_name)
+    || (BOOT?.filterCategories || []).some(category => category.category_id === item.category_id && category.company_only);
+}
 function renderRecurring(items) {
+  items = items.filter(item => !isCompanyEntry(item));
   $('recurringList').innerHTML = items.length ? items.map(item => `<div class="list-row">
     <div class="row-main"><span class="row-icon recurring-icon"><svg class="icon"><use href="#icon-${esc(recurringIcon(item.icon_key))}"></use></svg></span><div class="row-copy"><div class="row-title">${esc(item.recurring_name)}</div>
     <div class="row-sub">ครบกำหนด ${dateTH(item.next_due)} · ${money(item.amount)}</div></div></div>
@@ -795,7 +569,6 @@ function showPage(name) {
     button.classList.toggle('active', current);
     if (current) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
   });
-  if ($('layoutPageName')) $('layoutPageName').textContent = ({Dashboard:'ภาพรวมการเงิน',Transactions:'รายการทั้งหมด',Company:'เงินบริษัท',Debt:'หนี้',Recurring:'รายการประจำ'})[name] || '';
   $('recurringShortcut').classList.toggle('active', name === 'Recurring');
   if (name === 'Transactions') loadTransactions();
   window.scrollTo(0, 0);
@@ -813,33 +586,26 @@ async function openDetail(id) {
       <dt>หมวดหมู่</dt><dd>${esc(category)}</dd><dt>บัญชี</dt><dd>${esc(account)}</dd>
       <dt>จำนวนเงิน</dt><dd>${money(item.amount)}</dd><dt>เจ้าของ</dt><dd>${esc(OWNER_LABEL[item.expense_owner] || '-')}</dd>
       <dt>รายละเอียด</dt><dd>${esc(item.description || '-')}</dd>
-      ${item.project_name ? `<dt>โปรเจกต์</dt><dd>${esc(item.project_name)}</dd>` : ''}
-      ${item.company_funding ? `<dt>แหล่งเงิน</dt><dd>${esc({POOL:'กองกลางบริษัท',PROJECT:'เงินโปรเจกต์',PERSONAL:'เงินส่วนตัว'}[item.company_funding] || '')}</dd>` : ''}
-      ${item.company_funded_amount!==''&&item.company_funded_amount!=null ? `<dt>ใช้เงินบริษัท</dt><dd>${money(item.company_funded_amount)}</dd><dt>ออกส่วนตัว</dt><dd>${money(Number(item.amount)-Number(item.company_funded_amount))}</dd>` : ''}
-      ${item.company_kind==='MIXED_RECEIPT' ? `<dt>คืนยอดออกแทน</dt><dd>${money(Number(item.amount)-Number(item.company_pool_amount))}</dd><dt>ส่วนเข้ากองกลาง</dt><dd>${money(item.company_pool_amount)}</dd>` : ''}
-      ${item.to_project ? `<dt>โปรเจกต์ปลายทาง</dt><dd>${esc(item.to_project)}</dd>` : ''}
-      ${item.recipient ? `<dt>ผู้รับเบี้ยเลี้ยง</dt><dd>${esc(item.recipient)}</dd>` : ''}
-      ${['MOVE','SELF_ALLOWANCE'].includes(item.company_kind) ? '<dt>ผลต่อบัญชี</dt><dd>ยอดบัญชีไม่เปลี่ยน</dd>' : ''}
       <dt>สถานะ</dt><dd><span class="badge ${item.status.toLowerCase()}">${esc(STATUS_LABEL[item.status] || item.status)}</span></dd>
       ${item.void_reason ? `<dt>เหตุผลที่ยกเลิก</dt><dd>${esc(item.void_reason)}</dd>` : ''}
       ${item.attachment_url ? `<dt>เอกสาร</dt><dd><a href="${esc(item.attachment_url)}" target="_blank" rel="noopener">เปิดเอกสาร</a></dd>` : ''}</dl>`;
-    $('detailVoid').disabled = item.status === 'VOID';
-    $('detailVoidHelp').classList.toggle('hidden', item.status === 'VOID');
+    const companyEntry = isCompanyEntry(item);
+    $('detailVoid').disabled = item.status === 'VOID' || companyEntry;
+    $('detailVoidHelp').classList.toggle('hidden', item.status === 'VOID' || companyEntry);
     const lineDraft = item.status === 'DRAFT' && item.source_type === 'LINE';
-    $('detailEdit').disabled = item.status === 'VOID' || lineDraft || !!item.company_kind;
-    $('detailEdit').textContent = item.company_kind ? 'แก้โดยยกเลิกแล้วบันทึกใหม่' : lineDraft ? 'ยืนยันผ่าน LINE' : item.status === 'DRAFT' ? 'ตรวจและยืนยัน' : 'แก้ไข';
+    $('detailEdit').disabled = item.status === 'VOID' || lineDraft || companyEntry;
+    $('detailEdit').textContent = companyEntry ? 'จัดการที่เว็บบริษัท' : lineDraft ? 'ยืนยันผ่าน LINE' : item.status === 'DRAFT' ? 'ตรวจและยืนยัน' : 'แก้ไข';
     $('detailDialog').showModal();
   } catch (error) { fail(error); }
 }
 function editCurrentTransaction() {
   const item = selectedTx;
-  if (!item) return;
+  if (!item || isCompanyEntry(item)) return;
   $('detailDialog').close();
   resetForm();
   selectedTx = item;
-  fillProjectSelects();
   $('entryDialogTitle').textContent = item.status === 'DRAFT' ? 'ตรวจและยืนยันฉบับร่าง' : 'แก้ไขรายการ';
-  selectType(item.transaction_type, item.expense_owner);
+  selectType(item.transaction_type);
   $('txDate').value = String(item.transaction_date).slice(0, 10);
   $('amount').value = item.amount;
   $('account').value = item.account_id;
@@ -847,17 +613,14 @@ function editCurrentTransaction() {
   syncAccountPickerButtons();
   $('category').value = item.category_id || '';
   $('description').value = item.description || '';
-  $('projectName').value = item.project_name || '';
-  if(item.transaction_type==='EXPENSE'&&item.expense_owner==='COMPANY') selectCompanyFunding(item.company_funding||(item.project_name?'PROJECT':'PERSONAL'));
   $('draft').checked = false;
   $('draft').disabled = true;
   $('draftField').classList.add('hidden');
   $('saveButton').textContent = item.status === 'DRAFT' ? 'ยืนยันรายการ' : 'บันทึกการแก้ไข';
-  toggleRefundField();
   $('entryDialog').showModal();
 }
 async function voidCurrentTransaction() {
-  if (!selectedTx || selectedTx.status === 'VOID') return;
+  if (!selectedTx || selectedTx.status === 'VOID' || isCompanyEntry(selectedTx)) return;
   const answer = await sweet({ icon: 'warning', title: 'ยกเลิกรายการเงิน?',
     text: 'รายการจะยังอยู่ในประวัติ และระบบจะคำนวณยอดใหม่',
     input: 'textarea', inputPlaceholder: 'เหตุผลที่ยกเลิก',
@@ -872,81 +635,6 @@ async function voidCurrentTransaction() {
     showPage('Dashboard');
     notify('success', 'ยกเลิกรายการแล้ว', 'บันทึกประวัติและคำนวณยอดใหม่แล้ว');
   } catch (error) { fail(error); }
-}
-function openRefundDialog() {
-  if (!openEntryDialog()) return;
-  selectType('INCOME');
-  const category = categories('INCOME').find(item => item.category_name === 'เงินคืนบริษัท');
-  if (category) $('category').value = category.category_id;
-  toggleRefundField();
-}
-
-let companyFundsMode = 'ADVANCE';
-function syncCompanyFundsSource() {
-  const source=$('companyFundsSource').value;
-  $('companyFundsProjectField').classList.toggle('hidden',source!=='PROJECT');
-  $('companyProjectFinished').parentElement.classList.toggle('hidden',source!=='PROJECT');
-}
-async function openCompanyFunds(mode) {
-  if (!requireFreshData()) return;
-  companyFundsMode = mode;
-  $('companyFundsSource').innerHTML=option('POOL','กองกลางบริษัท')+option('PROJECT','เงินโปรเจกต์')+(mode==='OTHER_ALLOWANCE'?option('PERSONAL','ออกเงินส่วนตัวก่อน'):'');
-  $('companyFundsSource').value='POOL';
-  syncCompanyFundsSource();
-  const names = {ADVANCE:'รับเงินบริษัทล่วงหน้า',RECLASSIFY:'เปลี่ยนรายรับเดิมเป็นเงินล่วงหน้า',RETURN:'คืนเงินล่วงหน้าบริษัท',MOVE:'ย้ายเงินเหลือไปโปรเจกต์อื่น',SELF_ALLOWANCE:'เบี้ยเลี้ยงให้ตัวเอง',OTHER_ALLOWANCE:'เบี้ยเลี้ยงให้คนอื่น'};
-  $('companyFundsTitle').textContent = names[mode];
-  $('companyFundsHelp').textContent = {ADVANCE:'ใช้เฉพาะเงินรับใหม่ เงินที่บันทึกไว้แล้วให้เลือกเปลี่ยนรายรับเดิม',RECLASSIFY:'แก้รายการเดิมโดยไม่เพิ่มยอดบัญชีซ้ำ รายรับส่วนตัวจะลดลงตามยอดที่เปลี่ยน',MOVE:'ย้ายการจัดสรรเงินหลังโปรเจกต์จบ ยอดบัญชีไม่เปลี่ยน หากจะโอนเงินจริงให้บันทึกโอนเงินแยก',RETURN:'คืนได้ไม่เกินเงินล่วงหน้าคงเหลือของโปรเจกต์',SELF_ALLOWANCE:'เงินยังอยู่ในบัญชีของคุณ ใช้ยอดล่วงหน้าของโปรเจกต์เป็นรายได้ส่วนตัว ยอดบัญชีไม่เปลี่ยน หากย้ายบัญชีให้บันทึกโอนเงินแยก',OTHER_ALLOWANCE:'บันทึกเงินที่จ่ายจริงให้ผู้รับ เลือกหมวดเบี้ยเลี้ยงบริษัท หากเงินล่วงหน้าไม่พอ ส่วนเกินจะเป็นบริษัทค้างคืน'}[mode];
-  for (const id of ['companyFundsProject','companyFundsTarget','companyFundsAmount','companyFundsRecipient','companyFundsNote']) $(id).value = '';
-  $('companyProjectFinished').checked = false;
-  $('companyFundsDate').value = BOOT.today;
-  $('companyFundsAccount').innerHTML = accountOptions(false);
-  fillProjectSelects();
-  const allowanceCategories = categories('EXPENSE','COMPANY');
-  $('companyAllowanceCategory').innerHTML = '<option value="">เลือกหมวดเบี้ยเลี้ยงบริษัท</option>' + allowanceCategories.map(c=>option(c.category_id,c.category_name)).join('');
-  const allowanceCategory = allowanceCategories.find(c=>c.category_name==='เบี้ยเลี้ยง');
-  if(allowanceCategory) $('companyAllowanceCategory').value=allowanceCategory.category_id;
-  const allowance = mode.endsWith('ALLOWANCE');
-  $('companyExistingField').classList.toggle('hidden',mode!=='RECLASSIFY');
-  $('companyNewFields').classList.toggle('hidden',mode==='RECLASSIFY');
-  $('companyTargetField').classList.toggle('hidden',mode!=='MOVE');
-  $('companyAllowanceCategoryField').classList.toggle('hidden',!allowance);
-  $('companyRecipientField').classList.toggle('hidden',mode!=='OTHER_ALLOWANCE');
-  $('companyFundsAccountField').classList.toggle('hidden',mode==='MOVE');
-  if(mode==='RECLASSIFY') {
-    try {
-      const items = await server('getCompanyAdvanceCandidates');
-      $('companyExisting').innerHTML = '<option value="">เลือกรายรับเดิม</option>' + items.map(t=>option(t.transaction_id,`${dateTH(t.transaction_date)} · ${money(t.amount)} · ${t.description || t.transaction_id}`)).join('');
-    } catch(error) { fail(error); return; }
-  }
-  $('companyFundsDialog').showModal();
-}
-async function saveCompanyFunds() {
-  const button = $('companyFundsSave');
-  if(button.disabled) return;
-  const mode=companyFundsMode,source=$('companyFundsSource').value,project=source==='PROJECT'?$('companyFundsProject').value.trim():'';
-  if(source==='PROJECT'&&!project) return notify('warning','กรุณาระบุโปรเจกต์');
-  if(mode==='MOVE'&&source==='PROJECT'&&!$('companyProjectFinished').checked) return notify('warning','กรุณายืนยันว่าโปรเจกต์ต้นทางจบแล้ว');
-  button.disabled=true;
-  try {
-    let result;
-    if(mode==='RECLASSIFY') result=await server('reclassifyCompanyAdvance',$('companyExisting').value,project,source);
-    else {
-      const input={
-      transaction_type: ['ADVANCE','MOVE'].includes(mode)?'INCOME':'EXPENSE', expense_owner:'COMPANY',
-      company_kind:mode,company_funding:source,project_name:project,to_project:$('companyFundsTarget').value.trim(),
-      transaction_date:$('companyFundsDate').value,amount:Number($('companyFundsAmount').value),
-      account_id:$('companyFundsAccount').value,category_id:mode.endsWith('ALLOWANCE')?$('companyAllowanceCategory').value:'',
-      recipient:mode==='SELF_ALLOWANCE'?'ตัวเอง':$('companyFundsRecipient').value.trim(),
-      description:$('companyFundsTitle').textContent+' · '+(project||(source==='POOL'?'กองกลางบริษัท':'ออกเงินส่วนตัวก่อน'))+($('companyFundsNote').value.trim()?' | '+$('companyFundsNote').value.trim():''),
-      project_finished:$('companyProjectFinished').checked,status:'ACTIVE',source_type:'WEB'
-      };
-      if(!await confirmCompanyFunding(input)) return;
-      result=await server('saveTransaction',input);
-    }
-    renderMutation(result);$('companyFundsDialog').close();showPage('Company');
-    notify('success','บันทึกเงินบริษัทแล้ว');
-  } catch(error) { fail(error); }
-  finally {button.disabled=false;}
 }
 function openDebtDialog(mode, id) {
   if (!requireFreshData()) return;
@@ -1036,6 +724,7 @@ function openRecurringDialog(mode, id) {
   if (!requireFreshData()) return;
   recurringMode = mode; selectedRecurringId = id || null;
   const item = (BOOT?.recurring || []).find(row => row.recurring_id === id);
+  if (item && isCompanyEntry(item)) return;
   $('recurringDialogTitle').textContent = mode === 'create' ? 'เพิ่มรายการประจำ' : `จ่าย ${item?.recurring_name || 'รายการประจำ'}`;
   $('recurringCreateFields').classList.toggle('hidden', mode !== 'create');
   $('recurringAmountLabel').textContent = mode === 'create' ? 'จำนวนตามปกติ' : 'จำนวนเงินจริง';
@@ -1043,7 +732,6 @@ function openRecurringDialog(mode, id) {
   if (mode === 'create') {
     $('recurringName').value = '';
     $('recurringType').value = 'EXPENSE';
-    $('recurringOwner').value = 'PERSONAL';
     $('recurringDueDay').value = '1';
     $('recurringIcon').value = 'repeat';
     renderRecurringIconChoices();
@@ -1063,7 +751,7 @@ async function submitRecurringDialog() {
     let result;
     if (recurringMode === 'create') result = await server('createRecurring', {
       recurring_name: $('recurringName').value, transaction_type: $('recurringType').value,
-      category_id: $('recurringCategory').value, expense_owner: $('recurringOwner').value,
+      category_id: $('recurringCategory').value, expense_owner: 'PERSONAL',
       due_day: $('recurringDueDay').value, amount: $('recurringAmount').value,
       account_id: $('recurringAccount').value, start_date: $('recurringDate').value,
       icon_key: $('recurringIcon').value
@@ -1096,8 +784,7 @@ function renderAll(data) {
   $('currentMonth').textContent = `${MONTH_FULL[month - 1]} ${year + 543}`;
   renderDashboard(data.dashboard);
   renderAccounts(data.accounts, data.dashboard.balances);
-  renderLatest(data.latestTransactions);
-  renderCompany(data.company);
+  renderLatest();
   renderDebts(data.debts);
   renderRecurring(data.recurring);
   const currentAccount=$('account').value,currentDestination=$('toAccount').value;
@@ -1162,8 +849,6 @@ function installDialogScrollLock() {
 }
 
 document.addEventListener('click', event => {
-  const projectClose=event.target.closest('[data-close-project]');
-  if(projectClose) closeSelectedCompanyProject(projectClose.dataset.closeProject);
   const pickedAccount=event.target.closest('[data-pick-account]');
   if(pickedAccount) chooseAccount(pickedAccount.dataset.pickAccount);
   const accountToggle=event.target.closest('[data-account-toggle]');
@@ -1185,7 +870,7 @@ document.addEventListener('click', event => {
   const recurringStop = event.target.closest('[data-recurring-stop]');
   if (recurringStop) stopRecurring(recurringStop.dataset.recurringStop);
 });
-['entryDialog', 'categoryDialog', 'debtDialog', 'recurringDialog','accountPickerDialog','accountSettingsDialog','projectManagerDialog'].forEach(id => $(id).addEventListener('cancel', event => {
+['entryDialog', 'categoryDialog', 'debtDialog', 'recurringDialog','accountPickerDialog','accountSettingsDialog'].forEach(id => $(id).addEventListener('cancel', event => {
   event.preventDefault();
   cancelDialog(id);
 }));
@@ -1193,9 +878,6 @@ $('helpDialog').addEventListener('cancel', event => { event.preventDefault(); cl
 ['filterPeriod', 'filterMonth', 'filterDate', 'filterDateFrom', 'filterDateTo', 'filterType', 'filterOwner', 'filterAccount', 'filterCategory'].forEach(id =>
   $(id).addEventListener('change', loadTransactions));
 $('filterSearch').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadTransactions, 250); });
-$('category').addEventListener('change', toggleRefundField);
-$('amount').addEventListener('input', () => { if(isRefund()) clearRefundPreview(); });
-$('draft').addEventListener('change', toggleRefundField);
 $('debtDueMonthEdit').addEventListener('change',updateDebtDueMonth);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
 installDialogScrollLock();

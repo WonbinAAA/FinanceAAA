@@ -129,29 +129,6 @@
       <div id="transactionList" class="list finance-ledger"><div class="empty">กำลังโหลด...</div></div>
     </section>
 
-    <section id="pageCompany" class="page hidden">
-      <div class="page-heading"><h2>เงินบริษัท</h2><p>ดูเงินที่ยังถืออยู่ และเงินที่บริษัทต้องคืนให้คุณ</p></div>
-      <section class="company-funds-hero"><div class="company-hero-top"><span>เงินบริษัทเหลือใช้</span><span class="company-funds-tag">กองกลาง + โปรเจกต์</span></div><b id="companyAdvanceTotal">฿0.00</b><p>เงินบริษัทที่คุณยังถืออยู่ รวมกองกลางและทุกโปรเจกต์</p><div class="company-hero-note">ยอดนี้รวมอยู่ในบัญชีแล้ว ยังไม่ใช่เงินส่วนตัว</div></section>
-      <section class="company-project-section"><div class="company-section-heading"><h3>เงินแยกตามโปรเจกต์</h3><button type="button" class="secondary mini" onclick="openProjectManager()">จัดการโปรเจกต์</button></div><div id="companyProjectList" class="company-projects"></div></section>
-      <section class="company-pool-card"><div><b>กองกลางบริษัท</b><p>สำหรับค่าน้ำมัน อุปกรณ์ออฟฟิศ และค่าใช้จ่ายทั่วไป</p></div><strong id="companyPoolRemaining">฿0.00</strong><div class="company-pool-breakdown"><span>รับเข้า <b id="companyPoolReceived">฿0.00</b></span><span>ใช้จ่าย <b id="companyPoolSpent">฿0.00</b></span></div></section>
-      <div class="company-section-heading"><h3>เงินที่คุณออกแทนบริษัท</h3></div>
-      <div class="summary-grid company-claim-summary">
-        <div class="card metric"><span>ยอดออกแทนทั้งหมด</span><b id="claimTotal">฿0.00</b></div>
-        <div class="card metric"><span>บริษัทคืนแล้ว</span><b id="claimReturned">฿0.00</b></div>
-        <div class="card metric"><span>บริษัทค้างคืน</span><b id="claimRemaining">฿0.00</b></div>
-      </div>
-      <section class="company-actions-card"><div class="company-section-heading"><h3>บันทึกเงินบริษัท</h3></div><div class="company-action-grid">
-        <button class="company-action action-receive" onclick="openCompanyFunds('ADVANCE')"><span class="company-action-icon">↓</span><span>รับเงินล่วงหน้า<small>เพิ่มเงินให้โปรเจกต์</small></span></button>
-        <button class="company-action action-refund" onclick="openRefundDialog()"><span class="company-action-icon">↩</span><span>รับเงินบริษัท<small>คืนยอดออกแทน + กองกลาง</small></span></button>
-        <button class="company-action action-allowance" onclick="openCompanyFunds('SELF_ALLOWANCE')"><span class="company-action-icon">◎</span><span>เบี้ยเลี้ยงตัวเอง<small>เปลี่ยนเป็นรายได้ของคุณ</small></span></button>
-        <button class="company-action action-allowance" onclick="openCompanyFunds('OTHER_ALLOWANCE')"><span class="company-action-icon">◇</span><span>เบี้ยเลี้ยงคนอื่น<small>ระบุผู้รับเงิน</small></span></button>
-        <button class="company-action action-move" onclick="openCompanyFunds('MOVE')"><span class="company-action-icon">⇄</span><span>ย้ายเงินเหลือ<small>ไปโปรเจกต์อื่น</small></span></button>
-        <button class="company-action action-return" onclick="openCompanyFunds('RETURN')"><span class="company-action-icon">↑</span><span>คืนเงินล่วงหน้า<small>ส่งเงินเหลือคืนบริษัท</small></span></button>
-      </div><details class="company-legacy-action"><summary>เงินล่วงหน้าที่เคยลงเป็นรายรับแล้ว</summary><p>เปลี่ยนประเภทของรายการเดิม ยอดบัญชีไม่เพิ่มซ้ำ</p><button class="secondary wide" onclick="openCompanyFunds('RECLASSIFY')">เปลี่ยนรายรับเดิมเป็นเงินล่วงหน้า</button></details></section>
-      <section class="company-claims-section"><div class="company-section-heading"><h3>รายละเอียดเงินที่ออกแทน</h3></div><div id="claimList" class="card section-card list"></div></section>
-      <section class="company-history-section"><div class="company-section-heading"><h3>รายการรายรับ–รายจ่ายบริษัท</h3></div><div id="companyTransactionList" class="list transaction-cards"><div class="empty">ยังไม่มีรายการรับ–จ่ายบริษัท</div></div></section>
-    </section>
-
     <section id="pageDebt" class="page hidden">
       <div class="page-heading"><h2>หนี้</h2><p>ยอดคงเหลือและยอดที่ต้องจ่ายเดือนนี้</p></div>
       <div class="debt-summary">
@@ -188,23 +165,9 @@
       <li>ตรวจรายละเอียด แล้วกด <strong>บันทึก</strong> ระบบจะกลับหน้าหลักและคำนวณยอดใหม่</li>
     </ol></div>
     <div class="help-topics">
-      <details><summary>เงินบริษัทล่วงหน้าและเบี้ยเลี้ยง</summary><div>
-        <p>ในหน้า <strong>เงินบริษัท</strong> กด <strong>รับเงินบริษัทล่วงหน้า</strong> ระบุโปรเจกต์ วันที่ จำนวน และบัญชี เงินรับนี้ไม่เป็นรายได้ส่วนตัว</p>
-        <p>เงินที่ลงรายรับไว้แล้ว ให้กด <strong>เปลี่ยนรายรับเดิมเป็นเงินล่วงหน้า</strong> เลือกรายการเดิมและโปรเจกต์ ยอดบัญชีไม่เพิ่มซ้ำ หากมีหลายรายการ ให้เปลี่ยนทีละรายการ</p>
-        <p>เมื่อจ่ายงาน ให้เพิ่ม <strong>รายจ่ายบริษัท</strong> แล้วเลือกว่าจะใช้ <strong>กองกลางบริษัท / เงินล่วงหน้าโปรเจกต์ / ออกเงินส่วนตัวก่อน</strong> บัญชีที่จ่ายจริงเลือกแยกต่างหาก ถ้าเลือกโปรเจกต์ต้องระบุชื่อโปรเจกต์ หากเงินบริษัทไม่พอ ระบบแจ้งยอดขาดและให้ยืนยันก่อนออกเงินส่วนตัวส่วนที่เหลือ รายการเก่าคงวิธีคำนวณเดิมจนกว่าคุณจะแก้เอง</p>
-        <p><strong>รับเงินบริษัท</strong> กรอกยอดที่ได้รับจริง ระบบแยกคืนยอดที่ออกแทนและนำส่วนเกินเข้ากองกลาง พร้อมให้ยืนยันก่อนบันทึก เงินเข้าบัญชีเพียงครั้งเดียว เศษสตางค์คงเหลืออยู่ในกองกลางได้</p>
-        <p><strong>เบี้ยเลี้ยงให้ตัวเอง</strong> ใช้เมื่อเงินบริษัทในบัญชีของคุณเปลี่ยนเป็นสิทธิ์ของคุณแล้ว ระบบลดเงินบริษัทและเพิ่มรายได้ส่วนตัวโดยไม่เปลี่ยนยอดบัญชี ต้องมีเงินล่วงหน้าเพียงพอ หากย้ายเงินเข้าบัญชีอื่น ให้บันทึกโอนเงินต่างหาก</p>
-        <p><strong>เบี้ยเลี้ยงให้คนอื่น</strong> ใส่ชื่อผู้รับ หมวดเบี้ยเลี้ยง จำนวนและบัญชีที่จ่าย เงินออกจากบัญชีจริง อย่าบันทึกรายจ่ายเดียวกันซ้ำในฟอร์มทั่วไป</p>
-        <p>โปรเจกต์จบแล้ว ใช้ <strong>ย้ายเงินเหลือไปโปรเจกต์อื่น</strong> หรือระบุปลายทางเป็น <strong>กองกลางบริษัท</strong> การย้ายนี้เปลี่ยนการจัดสรรเท่านั้น หากโอนเงินจริงระหว่างบัญชีให้บันทึกโอนเงินแยก หรือใช้ <strong>คืนเงินล่วงหน้าบริษัท</strong> เมื่อคืนเงินจริง</p>
-        <p>ยอดบัญชีและเงินพร้อมใช้ยังรวมเงินบริษัทที่อยู่ในบัญชี ให้ดู <strong>ยอดเงินบริษัท</strong> ซึ่งเป็นเงินรับลบเงินจ่ายทั้งหมดตามสมุดบริษัทประกอบ ยอดสุทธินี้ไม่หักจากยอดบัญชีซ้ำ รายการพิเศษแก้โดยยกเลิกแล้วบันทึกใหม่ ระบบจะป้องกันการเปลี่ยนที่ทำให้เงินล่วงหน้าไม่พอหรือกระทบเงินคืนที่จับคู่แล้ว</p>
-      </div></details>
-      <details><summary>รายจ่ายส่วนตัวและรายจ่ายบริษัท</summary><div>
-        <p>เมื่อจ่ายเงินของตัวเอง เลือก <strong>รายจ่ายส่วนตัว</strong> และบัญชีที่จ่ายจริง</p>
-        <p>เพิ่มค่าใช้จ่ายบริษัทจากแท็บ <strong>บริษัท</strong> โดยเลือกบัญชีที่จ่ายจริง ระบบจะส่งรายการมาอัปเดตยอดบัญชีให้อัตโนมัติ</p>
-      </div></details>
-      <details><summary>เงินคืนบริษัทต่างจาก Refund อย่างไร</summary><div>
-        <p>เมื่อบริษัทคืนเงินที่ออกแทน ให้ไปหน้า <strong>บริษัท → บันทึกเงินคืนบริษัท</strong> ตรวจการจับคู่รายการก่อนบันทึก จับคู่บางส่วนได้ ยอดบริษัทค้างคืนจะลดลง และไม่ถูกนับเป็นรายได้จริงซ้ำ</p>
-        <p><strong>เงินคืน/Refund</strong> เป็นหมวดเงินคืนทั่วไป หากบันทึกเป็นรายรับ ระบบปัจจุบันจะนับในยอดรายรับ จึงไม่ควรใช้แทนเงินคืนบริษัท</p>
+      <details><summary>รายการบริษัท</summary><div>
+        <p>เพิ่ม แก้ไข และยกเลิกรายการจากแท็บ <strong>บริษัท</strong> เลือกบัญชีที่ใช้จริง แล้วเว็บการเงินจะอัปเดตยอดบัญชีจากรายการที่เชื่อมไว้</p>
+        <p>ยอดเงินบริษัทอ่านจากสมุดบริษัท ส่วนรายการเบี้ยเลี้ยงตัวเองที่ไม่เคลื่อนเงินจริงจะแสดงแยกจากยอดเงินเข้าออกของบัญชี</p>
       </div></details>
       <details><summary>เพิ่มหนี้และชำระหนี้</summary><div>
         <p>หน้า <strong>หนี้</strong> สรุปยอดที่ต้องจ่ายเดือนนี้ กด <strong>ยอดเดือนนี้</strong> เพื่อกำหนดหรือแก้ยอดแต่ละเดือน กด <strong>ปรับยอดหนี้</strong> เมื่อตรวจพบยอดคงเหลือจริงต่างจากระบบ และกด <strong>เพิ่มหนี้</strong> เมื่อมีหนี้ใหม่</p>
@@ -228,24 +191,6 @@
     <button class="primary wide" onclick="closeHelp()">เข้าใจแล้ว</button>
   </div></dialog>
 
-  <dialog id="companyFundsDialog"><div class="dialog-body">
-    <div class="dialog-head"><h2 id="companyFundsTitle">เงินบริษัทล่วงหน้า</h2><button class="close" onclick="$('companyFundsDialog').close()">×</button></div>
-    <p id="companyFundsHelp" class="hint"></p>
-    <div id="companyExistingField" class="field hidden"><label>รายรับที่บันทึกไว้แล้ว</label><select id="companyExisting"></select></div>
-    <div class="field"><label for="companyFundsSource">กองเงินบริษัท</label><select id="companyFundsSource" onchange="syncCompanyFundsSource()"></select></div>
-    <div id="companyFundsProjectField" class="field"><label for="companyFundsProject">โปรเจกต์</label><div class="project-picker"><select id="companyFundsProject"></select><button type="button" class="secondary" onclick="openProjectManager('companyFundsProject')" aria-label="เพิ่มหรือจัดการโปรเจกต์ต้นทาง">+</button></div></div>
-    <div id="companyTargetField" class="field hidden"><label for="companyFundsTarget">โปรเจกต์ปลายทาง / กองกลาง</label><div class="project-picker"><select id="companyFundsTarget"></select><button type="button" class="secondary" onclick="openProjectManager('companyFundsTarget')" aria-label="เพิ่มหรือจัดการโปรเจกต์ปลายทาง">+</button></div><label><input id="companyProjectFinished" type="checkbox"> โปรเจกต์ต้นทางจบแล้ว</label></div>
-    <div id="companyNewFields">
-      <div class="field"><label>วันที่</label><input id="companyFundsDate" type="date"></div>
-      <div class="field"><label>จำนวนเงิน</label><input id="companyFundsAmount" type="number" min="0.01" step="0.01" inputmode="decimal"></div>
-      <div id="companyFundsAccountField" class="field"><label>บัญชีที่รับหรือจ่ายเงิน</label><select id="companyFundsAccount"></select></div>
-      <div id="companyAllowanceCategoryField" class="field hidden"><label>หมวดรายจ่ายบริษัท</label><select id="companyAllowanceCategory"></select></div>
-      <div id="companyRecipientField" class="field hidden"><label>ชื่อผู้รับเบี้ยเลี้ยง</label><input id="companyFundsRecipient" maxlength="80"></div>
-      <div class="field"><label>หมายเหตุ</label><input id="companyFundsNote" maxlength="250"></div>
-    </div>
-    <div class="actions"><button class="secondary" onclick="$('companyFundsDialog').close()">ยกเลิก</button><button id="companyFundsSave" class="primary" onclick="saveCompanyFunds()">บันทึก</button></div>
-  </div></dialog>
-
   <dialog id="companySourceDialog"><div class="dialog-body"><div class="dialog-head"><h2>รายละเอียดรายการบริษัท</h2><button class="close" aria-label="ปิดรายละเอียดบริษัท" onclick="$('companySourceDialog').close()">×</button></div><div id="companySourceContent"></div><a class="primary" href="https://company-expenses-ledger.sugrid-kumpa.workers.dev/finance/?from=finance#transactions">เปิดเว็บบริษัท</a></div></dialog>
 <dialog id="entryDialog">
     <div class="dialog-body">
@@ -260,12 +205,8 @@
       <div class="field"><label>วันที่</label><input id="txDate" type="date"></div>
       <div class="field"><label id="accountLabel">บัญชีที่ใช้จ่าย</label><select id="account" class="hidden"></select><button id="accountPickerButton" class="account-picker-button" type="button" onclick="openAccountPicker('account')">เลือกบัญชี</button></div>
       <div class="field hidden" id="toAccountField"><label>บัญชีปลายทาง</label><select id="toAccount" class="hidden"></select><button id="toAccountPickerButton" class="account-picker-button" type="button" onclick="openAccountPicker('toAccount')">เลือกบัญชีปลายทาง</button></div>
-      <div class="field hidden" id="ownerField"><label>รายจ่ายนี้เป็นของใคร</label><select id="owner"><option value="PERSONAL">ส่วนตัว</option><option value="COMPANY">บริษัท</option></select></div>
       <div class="field" id="categoryField"><label id="categoryLabel">ประเภทรายจ่าย</label><div class="category-picker"><select id="category"></select><button class="secondary category-manage-button category-add-button" onclick="openCategoryDialog('entry')" aria-label="เพิ่มหรือจัดการหมวดหมู่" title="เพิ่มหรือจัดการหมวดหมู่">+</button></div></div>
-      <fieldset id="companyFundingField" class="company-funding-field hidden"><legend>เลือกเงินที่จะใช้จ่าย</legend><input id="companyFunding" type="hidden" value="PERSONAL"><label><input type="radio" name="companyFundingChoice" value="POOL" onchange="selectCompanyFunding('POOL')"> กองกลางบริษัท</label><label><input type="radio" name="companyFundingChoice" value="PROJECT" onchange="selectCompanyFunding('PROJECT')"> เงินล่วงหน้าโปรเจกต์</label><label><input type="radio" name="companyFundingChoice" value="PERSONAL" checked onchange="selectCompanyFunding('PERSONAL')"> ออกเงินส่วนตัวก่อน</label><p id="companyFundingHint"></p></fieldset>
-      <div class="field company-project hidden" id="projectShortcutField"><label for="projectName">โปรเจกต์บริษัท (ถ้ามี)</label><div class="project-picker"><select id="projectName"><option value="">ไม่ระบุโปรเจกต์</option></select><button type="button" class="secondary" onclick="openProjectManager('projectName')" aria-label="เพิ่มหรือจัดการโปรเจกต์">+</button></div></div>
       <div class="field"><label>รายละเอียด</label><textarea id="description" rows="3" placeholder="เช่น เติมน้ำมันไปทำงาน"></textarea></div>
-      <div id="refundMatchField" class="field hidden"><label>รับเงินบริษัท: เลือกรายการที่ได้รับคืน</label><div id="refundBalanceHint" class="refund-balance-hint"></div><p class="refund-help">กรอกยอดรับจริง แล้วติ๊กเฉพาะรายการที่บริษัทคืนให้ แก้ยอดรับคืนบางส่วนได้ รายการที่ไม่เลือกยังค้างคืน เงินรับส่วนที่เหลือเข้ากองกลาง</p><button id="refundPreviewButton" type="button" class="secondary mini" onclick="previewRefund()">เลือกรายการที่ได้รับคืน</button><p id="refundFeedback" class="refund-feedback" role="status" aria-live="polite"></p><div id="refundMatches"></div></div>
       <div id="draftField" class="hidden"><input id="draft" type="checkbox"></div>
       <div class="actions"><button class="secondary" onclick="cancelDialog('entryDialog')">ยกเลิก</button><button id="saveButton" class="primary" onclick="saveCurrentTransaction()">บันทึก</button></div>
     </div>
@@ -290,21 +231,12 @@
     <button class="secondary wide" onclick="cancelDialog('accountSettingsDialog')">ปิด</button>
   </div></dialog>
 
-  <dialog id="projectManagerDialog"><div class="dialog-body">
-    <div class="dialog-head"><div><div class="eyebrow">รายชื่อร่วมกันทุกฟอร์ม</div><h2>จัดการโปรเจกต์บริษัท</h2></div><button class="close" onclick="cancelDialog('projectManagerDialog')" aria-label="ปิดหน้าจัดการโปรเจกต์">×</button></div>
-    <p class="hint">เมื่อจบโปรเจกต์ กดปิดเพื่อย้ายเงินที่เหลือเข้ากองกลางและนำออกจากตัวเลือก ประวัติเดิมยังอยู่</p>
-    <div class="field"><label for="newCompanyProjectName">ชื่อโปรเจกต์ใหม่</label><input id="newCompanyProjectName" maxlength="80" placeholder="เช่น ติดตั้งเครื่องสำนักงาน" autocomplete="off"></div>
-    <button type="button" id="projectAddButton" class="primary wide" onclick="submitCompanyProject()">เพิ่มโปรเจกต์</button>
-    <div id="projectManagerList" class="project-manager-list"></div><div id="projectManagerHistory"></div>
-    <button type="button" class="secondary wide" onclick="cancelDialog('projectManagerDialog')">กลับ</button>
-  </div></dialog>
-
   <dialog id="categoryDialog"><div class="dialog-body">
     <div class="dialog-head"><div><div class="eyebrow">ตั้งค่าหมวดหมู่</div><h2>จัดการหมวดหมู่</h2></div><button class="close" onclick="cancelDialog('categoryDialog')" aria-label="ปิด">×</button></div>
     <p class="hint">หมวดที่เคยใช้จะเก็บไว้ในประวัติ แม้ปิดใช้งานแล้ว</p>
-    <div class="field"><label for="categoryManageType">ชุดหมวดหมู่</label><select id="categoryManageType" onchange="resetCategoryEditor();renderCategoryManager()"><option value="EXPENSE">รายจ่ายส่วนตัว</option><option value="OFFICE">รายจ่ายบริษัท</option><option value="INCOME">รายรับ</option><option value="BOTH">ใช้ได้ทั้งส่วนตัวและบริษัท</option></select></div>
+    <div class="field"><label for="categoryManageType">ชุดหมวดหมู่</label><select id="categoryManageType" onchange="resetCategoryEditor();renderCategoryManager()"><option value="EXPENSE">รายจ่ายส่วนตัว</option><option value="INCOME">รายรับ</option><option value="BOTH">ใช้ได้ทั้งส่วนตัวและบริษัท</option></select></div>
     <div class="field"><label for="categoryManageName">ชื่อหมวดหมู่</label><input id="categoryManageName" maxlength="60" placeholder="เช่น ค่าเดินทาง" autocomplete="off"></div>
-    <div class="field hidden" id="categoryEditGroupField"><label for="categoryEditGroup">ใช้กับรายจ่าย</label><select id="categoryEditGroup"><option value="EXPENSE">ส่วนตัว</option><option value="OFFICE">บริษัท</option><option value="BOTH">ทั้งสอง</option></select><small>ย้ายหมวดได้โดยไม่เปลี่ยนยอดหรือรายการเก่า</small></div>
+    <div class="field hidden" id="categoryEditGroupField"><label for="categoryEditGroup">ใช้กับรายจ่าย</label><select id="categoryEditGroup"><option value="EXPENSE">ส่วนตัว</option><option value="BOTH">ทั้งสอง</option></select><small>ย้ายหมวดได้โดยไม่เปลี่ยนยอดหรือรายการเก่า</small></div>
     <div class="category-editor-actions"><button id="categoryEditorCancel" class="secondary hidden" onclick="resetCategoryEditor()">ยกเลิกแก้ไข</button><button id="categorySubmitButton" class="primary" onclick="submitCategory()">เพิ่มหมวดหมู่</button></div>
     <div id="categoryManagerList" class="category-manager-list"></div>
     <button class="secondary wide" onclick="cancelDialog('categoryDialog')">ปิด</button>
@@ -346,7 +278,6 @@
       <div class="field"><label>ไอคอน</label><input id="recurringIcon" type="hidden" value="repeat"><div id="recurringIconChoices" class="icon-choices"></div></div>
       <div class="field"><label>ประเภท</label><select id="recurringType" onchange="fillRecurringCategories()"><option value="EXPENSE">รายจ่าย</option><option value="INCOME">รายรับ</option></select></div>
       <div class="field"><label>หมวดหมู่</label><select id="recurringCategory"></select></div>
-      <div class="field"><label>เจ้าของรายจ่าย</label><select id="recurringOwner" onchange="fillRecurringCategories()"><option value="PERSONAL">ส่วนตัว</option><option value="COMPANY">บริษัท</option></select></div>
       <div class="field"><label>วันครบกำหนดของเดือน</label><input id="recurringDueDay" type="number" min="1" max="31" value="1"></div>
     </div>
     <div class="field"><label id="recurringAmountLabel">จำนวนเงินจริง</label><input id="recurringAmount" type="number" min="0" step="0.01"></div>

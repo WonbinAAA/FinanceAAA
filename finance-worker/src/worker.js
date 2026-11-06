@@ -93,7 +93,7 @@ async function route(request, env) {
       executeFinance(before,'getTransactions',[filters]);
       const [book,links]=await Promise.all([readCompanyBook(env),env.DB.prepare('SELECT s.id AS source_id,s.revision,g.transaction_id,g.config_json FROM company_link_sources s JOIN company_link_groups g ON s.group_id=g.id').all()]);
       const rows=executeFinance(before,'getTransactions',[{}]).result;
-      return json(displayLedger(rows,book,links.results,filters,before.tables['บัญชี'].rows));
+      return json(displayLedger(rows,book,links.results,filters,before.tables['บัญชี'].rows,before.tables['หมวดหมู่'].rows));
     }
     if (url.pathname === '/api/import/preview') {
       const { snapshot, ...preview } = await prepareImport(before, body.export);
@@ -108,7 +108,7 @@ async function route(request, env) {
       const result = { ok: true, imported: plan.added, skipped: plan.skipped, reconciliation: plan.reconciliation };
       return json(await commitSnapshot(env.DB, before, plan.snapshot, requestId, hash, result));
     }
-    await protectCompanyWrites(env.DB, method, body.args || []);
+    await protectCompanyWrites(env.DB, method, body.args || [], before);
     const executed = executeFinance(before, method, body.args || [], { debtPaymentsEnabled: env.DEBT_PAYMENTS_ENABLED === 'true' });
     return json(writing ? await commitSnapshot(env.DB, before, executed.snapshot, requestId, hash, executed.result) : executed.result);
   }

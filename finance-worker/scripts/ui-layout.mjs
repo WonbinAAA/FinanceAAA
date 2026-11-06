@@ -55,7 +55,7 @@ function refineWorkspaceHtml(html) {
 }
 
 export function applyLayoutJavaScript(js) {
-  if (js.includes('layoutPageName')) return refineLedgerJavaScript(js);
+  if (js.includes('.finance-sidebar button[data-page]')) return refineLedgerJavaScript(js);
   js = js.replace("document.querySelectorAll('.bottom-nav button[data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === name));",
     `document.querySelectorAll('.bottom-nav button[data-page], .finance-sidebar button[data-page]').forEach(button => {
     const current = button.dataset.page === name;
@@ -73,13 +73,7 @@ function refineLedgerJavaScript(js) {
   js=js.replaceAll('https://company-expenses-ledger.sugrid-kumpa.workers.dev/?from=finance#transactions',companyUrl);
   if (!js.includes(companyUrl)) js=js.replace('function showPage(name) {', `function showPage(name) {\n  if (name === 'Company') { location.assign('${companyUrl}'); return; }`);
   if (!js.includes("addEventListener('pageshow'")) js += "\nwindow.addEventListener('pageshow', event => { if (event.persisted) refreshAll(); });\n";
-  if (!js.includes('return renderLedgerRow(item, {compact:true});')) {
-    const start=js.indexOf('function transactionRow(item) {'), end=js.indexOf('function renderLatest(items)',start);
-    if(start<0||end<0) throw new Error('Cannot locate the read-only transaction renderer');
-    js=js.slice(0,start)+'function transactionRow(item) { return renderLedgerRow(item, {compact:true}); }\n'+js.slice(end);
-  }
   js=js.replace("$('transactionList').innerHTML = items.length ? items.map(transactionRow).join('')", "$('transactionList').innerHTML = items.length ? renderLedgerDays(items)");
-  js=js.replace("companyTransactions.map(transactionRow).join('')", 'renderLedgerDays(companyTransactions)');
   return js;
 }
 

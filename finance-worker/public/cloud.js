@@ -2,8 +2,8 @@ let cloudSessionPromise;
 let cloudPublicAccess = false;
 const cloudPending = new Map();
 const cloudWrites = new Set(['createAccount','saveTransaction','updateTransaction','voidTransaction','confirmDraft','setAccountAvailable',
-  'createCategory','updateCategory','renameCategory','setCategoryActive','moveCategory','createCompanyProject','closeCompanyProject',
-  'reclassifyCompanyAdvance','setDebtMonthlyDue','adjustDebtBalance','saveDebtPlan','createDebt','renameDebt','increaseDebt','payDebt',
+  'createCategory','updateCategory','renameCategory','setCategoryActive','moveCategory',
+  'setDebtMonthlyDue','adjustDebtBalance','saveDebtPlan','createDebt','renameDebt','increaseDebt','payDebt',
   'createRecurring','deactivateRecurring','payRecurring']);
 
 async function cloudSession() {

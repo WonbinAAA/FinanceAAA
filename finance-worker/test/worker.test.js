@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/worker.js';
 import { authRoute, session } from '../src/auth.js';
-import { testDb } from './helpers.js';
-import { loadSnapshot } from '../src/storage.js';
+import { fixture, testDb, transaction } from './helpers.js';
+import { commitSnapshot, loadSnapshot } from '../src/storage.js';
+import { executeFinance } from '../src/finance.js';
 
 async function setup() {
   const env = { DB: testDb(), APP_ORIGIN: 'http://127.0.0.1:8787', APP_ENV: 'local', LOCAL_DEV_LOGIN: 'true',
@@ -33,6 +34,37 @@ test('RPC allowlist and CSRF reject calls without changing the database', async 
   assert.equal((await worker.fetch(request('/api/rpc', { method: 'ss_', args: [] }), env)).status, 404);
   assert.equal((await worker.fetch(request('/api/rpc', { method: 'getBootstrap', args: [] }, undefined, { 'X-CSRF-Token': 'wrong' }), env)).status, 403);
   assert.equal((await loadSnapshot(env.DB)).revision, 0);
+});
+test('company categories and old company forms cannot write through the Finance browser API', async () => {
+  const { env, request } = await setup();
+  const initial = fixture();
+  const categories = initial.tables['หมวดหมู่'].rows;
+  categories.push({ ...categories[0], _row: categories.length + 3, category_id: 'JOB', category_name: 'ติดตั้งเครื่อง งานศาล 3260' });
+  const old = executeFinance(initial, 'saveTransaction', [transaction({ expense_owner: 'COMPANY' })]);
+  const recurring = executeFinance(old.snapshot, 'createRecurring', [transaction({ expense_owner: 'COMPANY', recurring_name: 'บริษัทจำลอง', start_date: '2026-11-03', due_day: 3 })]);
+  await commitSnapshot(env.DB, await loadSnapshot(env.DB), recurring.snapshot, 'seed-company', 'seed-company', {});
+  const before = await loadSnapshot(env.DB);
+  const recurringId = before.tables['รายการประจำ'].rows[0].recurring_id;
+  const calls = [
+    ['saveTransaction', [transaction({ expense_owner: 'COMPANY' })]],
+    ['saveTransaction', [transaction({ transaction_type: 'INCOME', category_id: 'JOB' })]],
+    ['saveTransaction', [transaction({ transaction_type: 'INCOME', category_id: 'RF' })]],
+    ['updateTransaction', [old.result.id, { amount: 20 }]],
+    ['voidTransaction', [old.result.id, 'ทดสอบ']],
+    ['payRecurring', [{ recurring_id: recurringId }]],
+    ['createCategory', [{ category_group: 'OFFICE', category_name: 'หมวดจำลอง' }]],
+    ['createCompanyProject', ['งานจำลอง']],
+  ];
+  for (const [i, [method, args]] of calls.entries()) {
+    const response = await worker.fetch(request('/api/rpc', { method, args }, `synthetic-company-${i}`), env);
+    assert.equal(response.status, 409, method);
+    assert.equal((await response.json()).code, 'COMPANY_SOURCE_REQUIRED');
+  }
+  const bootstrap = await (await worker.fetch(request('/api/rpc', { method: 'getBootstrap', args: [] }), env)).json();
+  assert.deepEqual(bootstrap.categories.filter(item => item.company_only).map(item => item.category_id).sort(), ['JOB','RF']);
+  assert.equal(bootstrap.company, undefined);
+  assert.deepEqual(await loadSnapshot(env.DB), before);
+  assert.equal((await worker.fetch(request('/api/rpc', { method: 'saveTransaction', args: [transaction({})] }), env)).status, 200);
 });
 test('end-to-end API creates account once and returns no-store protected results', async () => {
   const { env, request } = await setup();

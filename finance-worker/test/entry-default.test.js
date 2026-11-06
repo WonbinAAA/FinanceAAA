@@ -6,8 +6,8 @@ const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
 const fn=name=>source.match(new RegExp('function '+name+'\\([^)]*\\) \\{[\\s\\S]*?\\n\\}'))?.[0];
 function setup(accounts){
  const fields=new Map();const get=id=>{if(!fields.has(id))fields.set(id,{value:'',classList:{add(){},remove(){},toggle(){}},close(){},showModal(){}});return fields.get(id);};
- const context={$:get,BOOT:{today:'2026-11-05',accounts},selectedTx:null,clearRefundPreview(){},fillProjectSelects(){},selectType(){},syncAccountPickerButtons(){},toggleRefundField(){}};
- vm.runInNewContext(fn('resetForm')+'\n'+fn('editCurrentTransaction'),context);return {context,get};
+ const context={$:get,BOOT:{today:'2026-11-05',accounts},selectedTx:null,selectType(){},syncAccountPickerButtons(){}};
+ vm.runInNewContext([fn('resetForm'),fn('isCompanyEntry'),fn('editCurrentTransaction')].join('\n'),context);return {context,get};
 }
 test('new entries default to the named Krungthai account while editing preserves the original account',()=>{
  const {context,get}=setup([{account_id:'CASH',account_name:'เงินสด'},{account_id:'KTB',account_name:'กรุงไทย'}]);get('account').value='CASH';context.resetForm();assert.equal(get('account').value,'KTB');

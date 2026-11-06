@@ -2,6 +2,7 @@
 // Legacy debt writes removed; manual components live in debt-components.js.
 import { createBook, formatDate } from './legacy-store.js';
 import { debtState, createDebtOperations } from './debt-components.js';
+import { isCompanyCategory } from './company-policy.js';
 export const READ_METHODS = ["getConnectionStatus","getBootstrap","getDashboard","getCategories","getTransactions","getTransaction","getLatestTransactions","getCompanySummary","getCompanyFundingPreview","getCompanyReceiptPreview","getCompanyProjectClosePreview","getCompanyAdvanceCandidates","getReimbursementPreview","getDebts","getRecurringDue","reconcileDatabase"];
 export const WRITE_METHODS = ["saveTransaction","updateTransaction","voidTransaction","confirmDraft","setAccountAvailable","createCategory","updateCategory","renameCategory","setCategoryActive","moveCategory","createCompanyProject","closeCompanyProject","reclassifyCompanyAdvance","setDebtMonthlyDue","adjustDebtBalance","saveDebtPlan","createDebt","renameDebt","increaseDebt","payDebt","createRecurring","deactivateRecurring","payRecurring"];
 export function createLegacyEngine(snapshot, options = {}) {
@@ -118,12 +119,11 @@ function getBootstrap() {
     return {connection,dashboard:getDashboard(),accounts:publicRows_(rows_(SH.ACCOUNTS).filter(x=>active_(x.is_active))
       .map(a=>Object.assign({},a,{include_in_available:accountAvailable_(a)}))),
       categories:publicRows_(allCategories.filter(x=>active_(x.is_active))),filterCategories:publicRows_(allCategories),
-      debts:getDebts(),recurring:getRecurringDue(),company:getCompanySummary(),latestTransactions:getLatestTransactions(8),today:today_()};
+      debts:getDebts(),recurring:getRecurringDue(),today:today_()};
   });
 }
 function transactionMutationResult_(extra) {
-  return Object.assign({ok:true,dashboard:getDashboard(),latestTransactions:getLatestTransactions(8),
-    company:getCompanySummary(),debts:getDebts(),recurring:getRecurringDue()},extra||{});
+  return Object.assign({ok:true,dashboard:getDashboard(),debts:getDebts(),recurring:getRecurringDue()},extra||{});
 }
 
 function positive_(v) {
@@ -136,7 +136,7 @@ function categoryGroup_(category) {
   const group=String(category.category_group||"").toUpperCase();
   return category.transaction_type==="INCOME"?"INCOME":(["EXPENSE","OFFICE","BOTH"].includes(group)?group:"BOTH");
 }
-function publicCategory_(category) { return Object.assign({},category,{category_group:categoryGroup_(category)}); }
+function publicCategory_(category) { return Object.assign({},category,{category_group:categoryGroup_(category),company_only:isCompanyCategory(category)}); }
 function categoryOrder_(item) {
   const value=String(item.sort_order??"").trim(),order=Number(value);
   return value!==""&&Number.isFinite(order)?order:999999;
@@ -683,13 +683,13 @@ function getDashboard() {
   const availableIds=new Set(accounts.filter(accountAvailable_).map(a=>String(a.account_id)));
   const availableOpening=accounts.filter(a=>availableIds.has(String(a.account_id)))
     .reduce((sum,a)=>sum+cents_(a.opening_balance),0);
-  let incomeCents=0,personalCents=0,companyCents=0,inflowCents=0,outflowCents=0;
+  let incomeCents=0,personalCents=0,inflowCents=0,outflowCents=0;
   let availableInflow=0,availableOutflow=0;
   const day=today_();
   let todayPersonalCents=0,todayCompanyCents=0;
   txs.forEach(t=>{ const amount=cents_(t.amount);
     if(t.company_kind==='MOVE') return;
-    if(t.company_kind==='SELF_ALLOWANCE') {incomeCents+=amount;companyCents+=amount;return;}
+    if(t.company_kind==='SELF_ALLOWANCE') {incomeCents+=amount;return;}
     if(t.transaction_type==="INCOME") {
       balanceCents[t.account_id]=(balanceCents[t.account_id]||0)+amount;
       inflowCents+=amount;
@@ -704,8 +704,7 @@ function getDashboard() {
         if(t.expense_owner==='COMPANY') todayCompanyCents+=amount;
         else todayPersonalCents+=amount;
       }
-      if(t.expense_owner==="COMPANY") { if(t.company_kind!=='RETURN') companyCents+=amount; }
-      else if(!paymentIds.has(String(t.transaction_id))) personalCents+=amount;
+      if(t.expense_owner!=="COMPANY"&&!paymentIds.has(String(t.transaction_id))) personalCents+=amount;
     }
     if(t.transaction_type==="TRANSFER") {
       balanceCents[t.account_id]=(balanceCents[t.account_id]||0)-amount;
@@ -717,15 +716,13 @@ function getDashboard() {
   const totalCents=Object.values(balanceCents).reduce((sum,value)=>sum+value,0);
   const availableCents=[...availableIds].reduce((sum,id)=>sum+(balanceCents[id]||0),0);
   const balances=Object.fromEntries(Object.entries(balanceCents).map(([id,value])=>[id,value/100]));
-  const companyDue=getCompanySummary().remaining;
   const debt=getDebts().reduce((s,d)=>s+d.balance,0);
   return {real_cash:totalCents/100,available_cash:availableCents/100,available_opening:availableOpening/100,
     available_inflow:availableInflow/100,available_outflow:availableOutflow/100,
     balances,income:incomeCents/100,personal_expense:personalCents/100,
-    company_expense:companyCents/100,company_receivable:companyDue,debt_balance:debt,
+    debt_balance:debt,
     today_expenses:{date:day,personal_expense:todayPersonalCents/100,company_expense:todayCompanyCents/100},
-    opening_total:openingCents/100,cash_inflow:inflowCents/100,cash_outflow:outflowCents/100,
-    company_advance:companyLedger_().remaining,net_position:totalCents/100+companyDue-debt-companyLedger_().remaining};
+    opening_total:openingCents/100,cash_inflow:inflowCents/100,cash_outflow:outflowCents/100};
 }
 function isCompanyRefund_(t) {
   const c=category_(t.category_id);

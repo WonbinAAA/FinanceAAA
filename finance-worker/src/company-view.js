@@ -1,7 +1,7 @@
 import {AppError} from './errors.js';
+import {isCompanyCategory,isCompanyRecord} from './company-policy.js';
 
 const unavailable=()=>new AppError('อ่านรายการบริษัทไม่สำเร็จ กรุณาลองใหม่',503,'COMPANY_VIEW_UNAVAILABLE');
-export const isCompanyRecord=row=>row.expense_owner==='COMPANY'||!!row.company_kind||row.category_name==='เงินคืนบริษัท';
 
 export async function readCompanyBook(env){
  if(!env.COMPANY_LEDGER?.fetch)throw unavailable();
@@ -22,7 +22,7 @@ export async function readCompanyBook(env){
  }catch{throw unavailable();}finally{clearTimeout(timer);}
 }
 
-export function displayLedger(rows,book,links,filters={},accountRows=[]){
+export function displayLedger(rows,book,links,filters={},accountRows=[],categoryRows=[]){
  const byTarget=new Map(rows.map(r=>[r.transaction_id,r])),bySource=new Map(links.map(r=>[r.source_id,r]));
  const refs=new Map(book.refs.map(r=>[r.id,r.name]));
  const accounts=new Map([...rows.filter(r=>r.account_id),...accountRows].map(r=>[r.account_id,r.account_name]));
@@ -41,8 +41,10 @@ export function displayLedger(rows,book,links,filters={},accountRows=[]){
    sync_pending:!link||link.revision!==e.revision};
  });
  const f=filters||{},query=String(f.query||'').toLocaleLowerCase();
+ const companyCategories=new Set(categoryRows.filter(isCompanyCategory).map(category=>category.category_id));
+ const linkedTargets=new Set(links.map(link=>link.transaction_id));
  // Accounting rows remain intact for cash/audit. Only source rows represent company entries in the view.
- let result=[...rows.filter(r=>!isCompanyRecord(r)),...company].filter(r=>
+ let result=[...rows.filter(r=>!linkedTargets.has(r.transaction_id)&&!companyCategories.has(r.category_id)&&!isCompanyRecord(r)),...company].filter(r=>
   (!f.source_id||r.source_id===f.source_id)&&
   ((f.date_from||f.date_to)?(!f.date_from||r.transaction_date>=f.date_from)&&(!f.date_to||r.transaction_date<=f.date_to):
    f.date?r.transaction_date===f.date:!f.month||r.transaction_date.slice(0,7)===f.month)&&
