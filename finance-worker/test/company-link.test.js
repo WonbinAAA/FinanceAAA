@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {fixture,testDb,transaction} from './helpers.js';
 import {executeFinance} from '../src/finance.js';
 import {commitSnapshot,loadSnapshot} from '../src/storage.js';
-import {companyOptions,applyCompanyEvent,installCompanyBaseline,linkHash,protectCompanyWrites,previewCompanyBatch} from '../src/company-link.js';
+import {companyOptions,applyCompanyEvent,installCompanyBaseline,linkHash,protectCompanyWrites,previewCompany,previewCompanyBatch} from '../src/company-link.js';
 
 const config=(extra={})=>({kind:'EXPENSE',funding:'PERSONAL',accountId:'ACC1',categoryId:'EX',projectName:'',...extra});
 const source=(extra={})=>({id:'synthetic-source',revision:1,date:'2026-11-03',direction:'expense',amount_cents:1000,item_name:'รายการจำลอง',note:'',recipient:'',deleted:false,finance:config(),...extra});
@@ -124,4 +124,33 @@ test('company project ID can receive advances and fund a self allowance without 
   assert.equal(after.income, before.income + 50);
   const state = await companyOptions(env, 'owner');
   assert.equal(state.company.project_catalog.find(project => project.project_name === projectName).remaining, 70);
+});
+
+test('combined ledger moves only actual cash and leaves historical wallets and personal income intact',async()=>{
+ const env=await setup();await baseline(env);
+ const historicalAdvance=source({id:'historical-pool',direction:'income',amount_cents:2500,
+  finance:config({kind:'ADVANCE',funding:'POOL',categoryId:''})});
+ await applyCompanyEvent(env,event(historicalAdvance));
+ const before=await dashboard(env);
+ const {transactions:historicalTransactions,...prior}=(await companyOptions(env,'owner')).company;
+ const unified=(extra={})=>config({funding:'UNIFIED',...extra});
+ const fuel=source({id:'combined-fuel',amount_cents:40000,finance:unified(),ledgerReviewed:true});
+ const self=source({id:'combined-self',amount_cents:60000,finance:unified({kind:'SELF_ALLOWANCE',accountId:''}),ledgerReviewed:true});
+ const receipt=source({id:'combined-receipt',direction:'income',amount_cents:100000,finance:unified({kind:'ADVANCE',categoryId:''}),ledgerReviewed:true});
+ await previewCompany(env,'owner',self,true);
+ await previewCompanyBatch(env,'owner',[self],true);
+ assert.equal((await dashboard(env)).real_cash,before.real_cash);
+ await applyCompanyEvent(env,event(fuel));
+ await applyCompanyEvent(env,event(self));
+ assert.equal((await dashboard(env)).real_cash,before.real_cash-400);
+ assert.equal((await dashboard(env)).income,before.income);
+ const saved=await applyCompanyEvent(env,event(receipt));
+ assert.deepEqual(await applyCompanyEvent(env,event(receipt)),saved);
+ assert.equal((await dashboard(env)).real_cash,before.real_cash+600);
+ assert.equal((await dashboard(env)).income,before.income);
+ const {transactions,...current}=(await companyOptions(env,'owner')).company;
+ assert.deepEqual(current,prior);
+ assert.deepEqual(transactions.filter(row=>row.company_funding!=='UNIFIED'),historicalTransactions);
+ await applyCompanyEvent(env,event({...receipt,revision:2,deleted:true}));
+ assert.equal((await dashboard(env)).real_cash,before.real_cash-400);
 });

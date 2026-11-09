@@ -86,7 +86,7 @@ function refineRequestedWorkspace(html){
   html=html.replace(/<p[^>]*>ยอดเงินจริงในบัญชีที่เลือก รวมเงินบริษัทที่อยู่ในบัญชีเหล่านี้<\/p>/,'');
   html=html.replace('<div class="hero-caption">ยอดเงินจริงในบัญชีที่เลือก รวมเงินบริษัทที่อยู่ในบัญชีเหล่านี้</div>','');
   html=html.replace('ยอดสุทธิบริษัท<small id="dashboardCompanyNetCaption">กำลังอ่านสมุดบริษัท…</small>','ยอดเงินบริษัท');
-  html=html.replace('<span>บริษัทค้างคืน</span><b id="company">฿0.00</b><small>เงินที่ออกแทน</small>','<span id="companyReserveLabel">สำรองจ่าย</span><b id="company">—</b><small>เงินที่ออกแทน</small>');
+  html=html.replace('<span>บริษัทค้างคืน</span><b id="company">฿0.00</b><small>เงินที่ออกแทน</small>','<span id="companyReserveLabel">บริษัทค้างจ่าย</span><b id="company">—</b><small>เงินออกแทนและเบี้ยเลี้ยงตัวเอง</small>');
   html=html.replace('<div class="card metric metric-company">','<div id="companyReserveCard" class="card metric metric-company">');
   html=html.replace('<strong>ยอดสุทธิบริษัท</strong>','<strong>ยอดเงินบริษัท</strong>');
   html=html.replace('id="latestList" class="list finance-latest"','id="latestList" class="list finance-ledger finance-latest"');

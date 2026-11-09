@@ -1,6 +1,6 @@
 # Company ledger connection
 
-The Finance dashboard's **ยอดเงินบริษัท** card reads the company owner's entire active book through the `COMPANY_LEDGER` service binding and `/finance/api/summary`: income minus expenses, in integer satang. This includes the book's self allowances and personally funded expenses, exactly as its unfiltered totals do. A positive net displays a plus sign and green text; a deficit displays red text. **สำรองจ่าย** displays `max(0, -net_cents)`, with a red title and amount only when positive. These are display rules, separate from reserved project/pool funds, reimbursement claims, bank balances and available cash; none of those accounting values are changed by this display. The browser loads the summary independently after the dashboard, so a company read failure shows unavailable amounts for both cards rather than wallet funds or a false zero, and cannot block the bank balance display.
+The Finance dashboard's **ยอดเงินบริษัท** card reads the company owner's entire active book through the `COMPANY_LEDGER` service binding and `/finance/api/summary`. The signed balance is income minus expenses in integer satang, including self allowances and personally funded expenses. A positive balance displays a plus sign and green text. A deficit displays red text. **บริษัทค้างจ่าย** displays `max(0, -net_cents)`, with a red title and amount when positive. The browser loads the summary independently of the bank balances and marks the company amounts unavailable if the read fails.
 
 The company app remains the place to create, edit, trash and restore linked company entries. Its existing report fields, PDF/Excel renderer and templates are unchanged. Finance shows the resulting bank and available-cash totals using the existing accounting engine. Company expenses that already affect a bank transaction must never be subtracted again merely to match the book's net. Review source links and target records before voiding a genuine duplicate; an unlinked historical company record is not automatically a duplicate.
 
@@ -8,9 +8,7 @@ New entries in the Finance form default to the active account named **กรุ�
 
 ## Company entries in the Finance list
 
-The transaction list and latest entries use the read-only `getDisplayTransactions` RPC. It combines personal Finance history with the current active company owner's source entries fetched through the fixed `/finance/api/bootstrap` service request. Company titles, dates, amounts, multiline notes and projects come from that source, with one visible row per company entry. Existing Finance company rows, including combined historical targets and unmatched older company rows, are excluded from this view. They remain in the audited accounting history and backups so removing them from the screen cannot reverse or duplicate bank movements. No migration or financial write is needed for this presentation change.
-
-Connection metadata supplies the bank account, financial category and cashless type; it does not replace source content. Three company allowances can therefore appear separately while retaining one original combined bank transaction. Self allowances remain cashless and excluded from daily bank-cash net. Pending source revisions are marked as awaiting a bank update. Source details are read again when opened, and the link to the company app is the place to edit them. If the source is unavailable the list reports a retryable error rather than showing old company copies or silently presenting an incomplete total. Bank balances load independently.
+The Finance list, latest entries and exports show personal history. Company entries remain in the company app, and their linked Finance rows stay in the audited accounting history and backups. A combined historical payment can link several company entries to one bank transaction.
 
 ## Deployment order
 
@@ -23,9 +21,9 @@ No IDs, names, monetary history, private backup, initial mapping plan or credent
 
 ## Recording money
 
-New entries require a real bank account and an explicit money type. Expenses distinguish personal funding, project advances and the company pool. Incoming money distinguishes advances from manually selected reimbursement claims. Any surplus into the pool and any personal shortfall require explicit confirmation. Self allowances retain the existing noncash ownership-transfer rule; a self allowance with insufficient company funds is rejected.
+New entries use the signed company balance across all projects. The single receipt form increases both the company balance and the actual receiving account. An expense decreases the company balance. For a cash expense, the actual paying account decreases by the full amount and the company form asks for confirmation of any newly advanced personal cash. A self allowance counts at its full amount in the company balance and in the company claim PDF. Bank balances move only when cash is actually paid or received. Finance classifies neither a new self allowance nor the company transfer that covers it as personal income.
 
-Old unassigned funding can remain as historical data. Once a funding source has been specified it cannot be cleared to evade validation. A combined historical payment stays a single bank transaction; its source entries share the same financial configuration and date. Changing those independently requires a reviewed split, rather than silently duplicating the payment.
+Historical funding and reimbursement links stay attached to their original entries. The combined balance is computed from those entries and new entries together. A combined historical payment stays a single bank transaction and its source entries share the same financial configuration and date. Independent changes to those fields require a reviewed split.
 
 ## Delivery and recovery
 

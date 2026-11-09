@@ -20,14 +20,16 @@ export function cleanSource(value){
   const date=new Date(value.date+'T00:00:00Z');if(!Number.isFinite(+date)||date.toISOString().slice(0,10)!==value.date)fail('วันที่ต้นทางไม่ถูกต้อง');
   for(const key of ['item_name','note','recipient'])if(typeof value[key]!=='string'||value[key].length>(key==='note'?2000:300))fail('รายละเอียดต้นทางไม่ถูกต้อง');
   return {id:value.id,revision:value.revision,date:value.date,direction:value.direction,amount_cents:value.amount_cents,
-    item_name:value.item_name,note:value.note,recipient:value.recipient,deleted:value.deleted,finance:cleanConfig(value.finance)};
+    item_name:value.item_name,note:value.note,recipient:value.recipient,deleted:value.deleted,finance:cleanConfig(value.finance),
+    ...(value.ledgerReviewed===true?{ledgerReviewed:true}:{})};
 }
 export function cleanConfig(value){
   if(!value||!['EXPENSE','OTHER_ALLOWANCE','SELF_ALLOWANCE','ADVANCE','REIMBURSEMENT'].includes(value.kind)
-    ||!['','PERSONAL','POOL','PROJECT'].includes(value.funding))fail('กรุณาเลือกประเภทเงินและแหล่งเงิน');
+    ||!['','PERSONAL','POOL','PROJECT','UNIFIED'].includes(value.funding))fail('กรุณาเลือกประเภทเงินและแหล่งเงิน');
   const text=key=>{if(typeof value[key]!=='string'||value[key].length>100)fail('ข้อมูลบัญชีหรือหมวดหมู่ไม่ถูกต้อง');return value[key];};
   const result={kind:value.kind,funding:value.funding,accountId:text('accountId'),categoryId:text('categoryId'),projectName:text('projectName')};
-  if(!result.accountId)fail('กรุณาเลือกบัญชีเงินจริง');
+  if(!result.accountId&&!(result.funding==='UNIFIED'&&result.kind==='SELF_ALLOWANCE'))fail('กรุณาเลือกบัญชีเงินจริง');
+  if(result.funding==='UNIFIED'&&(result.projectName||result.kind==='REIMBURSEMENT'))fail('รายการใหม่ต้องใช้ยอดเงินบริษัทรวม');
   if(result.kind==='REIMBURSEMENT'){
     if(!Array.isArray(value.allocations)||value.allocations.length>200)fail('กรุณาเลือกรายการรับคืนด้วยตนเอง');
     result.allocations=value.allocations.map(a=>{if(typeof a.claim_id!=='string'||!a.claim_id||!Number.isSafeInteger(a.cents)||a.cents<=0)fail('ยอดจับคู่เงินคืนไม่ถูกต้อง');return {claim_id:a.claim_id,cents:a.cents};});
@@ -58,6 +60,19 @@ function inputFor(sources,config,target){
   if(target?.attachment_url)input.attachment_url=target.attachment_url;
   return input;
 }
+function legacyFundingPreview(snapshot,source,input,transactionId=''){
+  if(source.direction==='expense'&&source.finance.funding!=='UNIFIED')
+    return executeFinance(snapshot,'getCompanyFundingPreview',[input,transactionId]).result;
+  return null;
+}
+function useLedgerReview(source,input,funding){
+  if(!source.ledgerReviewed)return;
+  // The Company ledger confirms the current combined balance. Retain the historical
+  // Finance funding rules and allocations when updating older linked transactions.
+  if(funding&&source.finance.funding!=='PERSONAL')Object.assign(input,{
+    company_shortfall_confirmed:true,company_expected_personal:funding.personal_amount});
+  if(source.finance.kind==='REIMBURSEMENT')input.company_surplus_confirmed=true;
+}
 async function control(db){return !!(await db.prepare('SELECT enabled FROM company_link_control WHERE singleton=1').first())?.enabled;}
 export async function companyOptions(env,ownerId){
   owner(ownerId);const snapshot=await loadSnapshot(env.DB),bootstrap=executeFinance(snapshot,'getBootstrap').result;
@@ -77,13 +92,14 @@ export async function previewCompany(env,ownerId,entry,strict=false){
     if(await linkHash(target)!==linked.transaction_hash)fail('รายการเว็บการเงินเปลี่ยนแยกจากต้นทาง ต้องตรวจเทียบก่อน');
     if(!next.some(active)){if(strict&&target?.status==='ACTIVE')executeFinance(snapshot,'voidTransaction',[linked.transaction_id,'ยกเลิกจากบริษัท']);return {funding:null};}
     const input=inputFor(next,source.finance,target),targetId=target?.status==='ACTIVE'?linked.transaction_id:'';
-    const funding=source.direction==='expense'?executeFinance(snapshot,'getCompanyFundingPreview',[input,targetId]).result:null;
+    const funding=legacyFundingPreview(snapshot,source,input,targetId);
+    useLedgerReview(source,input,funding);
     if(strict)executeFinance(snapshot,targetId?'updateTransaction':'saveTransaction',targetId?[targetId,input]:[input]);
     return {funding};
   }
   if(!source.finance.funding&&source.finance.kind!=='REIMBURSEMENT')fail('กรุณาเลือกแหล่งเงินสำหรับรายการใหม่');
   if(source.deleted)return {funding:null};
-  const input=inputFor([source],source.finance),funding=source.direction==='expense'?executeFinance(snapshot,'getCompanyFundingPreview',[input,'']).result:null;
+  const input=inputFor([source],source.finance),funding=legacyFundingPreview(snapshot,source,input);
   if(strict)executeFinance(snapshot,'saveTransaction',[input]);
   return {funding};
 }
@@ -97,8 +113,8 @@ export async function previewCompanyBatch(env,ownerId,values,strict=false){
     ids.add(source.id);
     if(await env.DB.prepare('SELECT 1 FROM company_link_sources WHERE id=?').bind(source.id).first())fail('เบี้ยเลี้ยงชุดใหม่ใช้รหัสรายการเดิมไม่ได้');
     if(!source.finance.funding)fail('กรุณาเลือกแหล่งเงินเบี้ยเลี้ยง');
-    const input=inputFor([source],source.finance),funding=executeFinance(snapshot,'getCompanyFundingPreview',[input,'']).result;
-    if(!strict&&source.finance.funding!=='PERSONAL')Object.assign(input,{company_shortfall_confirmed:true,company_expected_personal:funding.personal_amount});
+    const input=inputFor([source],source.finance),funding=legacyFundingPreview(snapshot,source,input);
+    if(!strict&&funding&&source.finance.funding!=='PERSONAL')Object.assign(input,{company_shortfall_confirmed:true,company_expected_personal:funding.personal_amount});
     snapshot=executeFinance(snapshot,'saveTransaction',[input]).snapshot;
     result.push({id:source.id,funding});
   }
@@ -129,6 +145,10 @@ export async function applyCompanyEvent(env,event){
     if(current?.status==='ACTIVE')executed=executeFinance(before,'voidTransaction',[transactionId,'ยกเลิกจากเว็บค่าใช้จ่ายบริษัท']);
   }else{
     const input=inputFor(entries,source.finance,current);
+    if(source.ledgerReviewed&&source.finance.funding!=='UNIFIED'){
+      const funding=legacyFundingPreview(before,source,input,current?.status==='ACTIVE'?transactionId:'');
+      useLedgerReview(source,input,funding);
+    }
     if(current?.status==='ACTIVE')executed=executeFinance(before,'updateTransaction',[transactionId,input]);
     else {executed=executeFinance(before,'saveTransaction',[input]);transactionId=executed.result.id;}
   }

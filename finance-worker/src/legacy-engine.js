@@ -260,16 +260,21 @@ function validateTx_(input,allowedInactiveCategoryId,allowedLegacyCategoryId,his
   const companyKind=String(input.company_kind||"");
   if(companyKind&&!['ADVANCE','RETURN','MOVE','SELF_ALLOWANCE','OTHER_ALLOWANCE','MIXED_RECEIPT'].includes(companyKind)) throw new Error('ประเภทเงินบริษัทไม่ถูกต้อง');
   const funding=String(input.company_funding||'');
-  if(funding&&!['POOL','PROJECT','PERSONAL'].includes(funding)) throw new Error('แหล่งเงินบริษัทไม่ถูกต้อง');
+  if(funding&&!['POOL','PROJECT','PERSONAL','UNIFIED'].includes(funding)) throw new Error('แหล่งเงินบริษัทไม่ถูกต้อง');
   if(funding==='PERSONAL'&&['ADVANCE','RETURN','MOVE','SELF_ALLOWANCE'].includes(companyKind)) throw new Error('รายการนี้ต้องใช้เงินบริษัทจากกองกลางหรือโปรเจกต์');
   const project=String(input.project_name||'').trim().replace(/\s+/g,' ');
   if(project.length>80) throw new Error('ชื่อโปรเจกต์ยาวเกิน 80 ตัวอักษร');
-  if(companyKind&&companyKind!=='MIXED_RECEIPT'&&funding!=='POOL'&&funding!=='PERSONAL'&&!project) throw new Error('กรุณาระบุโปรเจกต์');
+  if(companyKind&&companyKind!=='MIXED_RECEIPT'&&!['POOL','PERSONAL','UNIFIED'].includes(funding)&&!project) throw new Error('กรุณาระบุโปรเจกต์');
   if(funding==='PROJECT'&&!project) throw new Error('กรุณาเลือกโปรเจกต์ที่จะหักเงิน');
   const type=String(input.transaction_type||"").toUpperCase(), amount=positive_(input.amount);
   if(!["INCOME","EXPENSE","TRANSFER"].includes(type)) throw new Error("ประเภทรายการไม่ถูกต้อง");
   const accounts=rows_(SH.ACCOUNTS).filter(a=>active_(a.is_active));
-  if(!(companyKind==='MOVE'&&!input.account_id)&&!accounts.some(a=>a.account_id===input.account_id)) throw new Error("บัญชีไม่ถูกต้อง");
+  const unified=funding==='UNIFIED';
+  if(unified&&(project||!(type==='INCOME'&&companyKind==='ADVANCE'||
+    type==='EXPENSE'&&input.expense_owner==='COMPANY'&&['','SELF_ALLOWANCE','OTHER_ALLOWANCE'].includes(companyKind))))
+    throw new Error('ประเภทเงินไม่ตรงกับยอดเงินบริษัทรวม');
+  const noCashAccount=!input.account_id&&(companyKind==='MOVE'||unified&&companyKind==='SELF_ALLOWANCE');
+  if(!noCashAccount&&!accounts.some(a=>a.account_id===input.account_id)) throw new Error("บัญชีไม่ถูกต้อง");
   if(type==="TRANSFER"&&(!accounts.some(a=>a.account_id===input.to_account_id)||input.to_account_id===input.account_id)) throw new Error("บัญชีปลายทางไม่ถูกต้อง");
   if(type==="EXPENSE"&&!["PERSONAL","COMPANY"].includes(input.expense_owner)) throw new Error("กรุณาเลือก ส่วนตัว/บริษัท");
   if(type!=="TRANSFER"&&!['ADVANCE','RETURN','MOVE'].includes(companyKind)) {
@@ -324,7 +329,7 @@ function createClaim_(tx) {
 }
 
 function isCompanyExpense_(tx) {
-  return tx.transaction_type==='EXPENSE'&&tx.expense_owner==='COMPANY'&&tx.company_kind!=='RETURN';
+  return tx.transaction_type==='EXPENSE'&&tx.expense_owner==='COMPANY'&&tx.company_kind!=='RETURN'&&tx.company_funding!=='UNIFIED';
 }
 function prepareCompanyTx_(tx) {
   if(!tx.project_name&&!tx.company_kind&&!tx.recipient&&!tx.company_funding) return;
@@ -407,7 +412,7 @@ function closeCompanyProject(value,expectedRemaining) { return withLock_(()=>{
   return transactionMutationResult_({moved_amount:preview.remaining});
 }); }
 function companyWallet_(tx) {
-  if(tx.company_funding==='PERSONAL') return '';
+  if(['PERSONAL','UNIFIED'].includes(tx.company_funding)) return '';
   if(tx.company_funding==='POOL') return COMPANY_POOL;
   return String(tx.project_name||'');
 }
@@ -689,7 +694,10 @@ function getDashboard() {
   let todayPersonalCents=0,todayCompanyCents=0;
   txs.forEach(t=>{ const amount=cents_(t.amount);
     if(t.company_kind==='MOVE') return;
-    if(t.company_kind==='SELF_ALLOWANCE') {incomeCents+=amount;return;}
+    if(t.company_kind==='SELF_ALLOWANCE') {
+      if(t.company_funding!=='UNIFIED') incomeCents+=amount;
+      return;
+    }
     if(t.transaction_type==="INCOME") {
       balanceCents[t.account_id]=(balanceCents[t.account_id]||0)+amount;
       inflowCents+=amount;

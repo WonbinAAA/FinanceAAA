@@ -32,7 +32,7 @@
         card.classList.toggle('company-net-negative', data.net_cents < 0);
         card.classList.toggle('company-net-positive', data.net_cents > 0);
         card.setAttribute('aria-label',`ยอดเงินบริษัท ${money(data.net_cents,true)} เปิดสมุดบริษัท`);
-        if(reserveCard)reserveCard.setAttribute('aria-label',`สำรองจ่าย ${money(advanced)}`);
+        if(reserveCard)reserveCard.setAttribute('aria-label',`บริษัทค้างจ่าย ${money(advanced)}`);
         card.setAttribute('title', `รับ ${money(data.income_cents)} − จ่าย ${money(data.expense_cents)} · ทุกงานและทุกช่วงวันที่`);
       } catch {
         value.textContent = '—';
