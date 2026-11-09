@@ -105,7 +105,7 @@ function refineRequestedJavaScript(js){
   const request=++latestViewRequest;
   $('latestList').innerHTML='<div class="empty">กำลังโหลด...</div>';
   try {
-    const items=await server('getDisplayTransactions',{limit:8});
+    const items=await server('getDisplayTransactions',{limit:10});
     if(request!==latestViewRequest)return;
     $('latestList').innerHTML=items.length?renderLedgerDays(items):'<div class="empty">ยังไม่มีรายการ</div>';
   } catch(error) {
