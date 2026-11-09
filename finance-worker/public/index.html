@@ -125,7 +125,13 @@
         <div class="category-picker"><select id="filterCategory" aria-label="หมวดหมู่"><option value="">ทุกหมวดหมู่</option></select><button class="secondary category-manage-button" onclick="openCategoryDialog('filter')" aria-label="จัดการหมวดหมู่">จัดการ</button></div>
         <input id="filterSearch" type="search" placeholder="ค้นหารายละเอียดรายการ" aria-label="ค้นหารายละเอียดรายการ">
       </div>
-      <div class="transaction-results-heading"><h3>ประวัติรายการ</h3><span id="transactionCount">กำลังโหลด...</span></div>
+      <div class="transaction-results-heading">
+        <div><h3>ประวัติรายการ</h3><span id="transactionCount">กำลังโหลด...</span></div>
+        <div class="transaction-export-actions" aria-label="ส่งออกรายการตามตัวกรอง">
+          <button type="button" class="secondary" id="exportTransactionsPdf" disabled onclick="exportTransactions('pdf')">ส่งออก PDF</button>
+          <button type="button" class="secondary" id="exportTransactionsXlsx" disabled onclick="exportTransactions('xlsx')">ส่งออก Excel</button>
+        </div>
+      </div>
       <div id="transactionList" class="list finance-ledger"><div class="empty">กำลังโหลด...</div></div>
     </section>
 

@@ -14,6 +14,8 @@ let toastTimer = null;
 let searchTimer = null;
 let refreshRequest = 0;
 let transactionRequest = 0;
+let transactionReportView = null;
+let transactionReportBusy = false;
 let todayRefreshTimer = null;
 let dataReady = false;
 let activeAccountPicker = 'account';
@@ -535,6 +537,8 @@ function openTodayExpenses() {
 }
 async function loadTransactions() {
   const request = ++transactionRequest;
+  transactionReportView = null;
+  updateReportButtons();
   syncTransactionPeriod();
   const filters=currentFilters();
   const dateError=filters.date_from&&filters.date_to&&filters.date_from>filters.date_to?
@@ -554,11 +558,48 @@ async function loadTransactions() {
     if (request !== transactionRequest) return;
     $('transactionCount').textContent = items.length + ' รายการตามตัวกรอง';
     $('transactionList').innerHTML = items.length ? renderLedgerDays(items) : '<div class="empty">ไม่พบรายการ</div>';
+    if (items.length && JSON.stringify(filters) === JSON.stringify(currentFilters())) transactionReportView = { filters, items };
+    updateReportButtons();
   }
   catch(error){if(request===transactionRequest){
     $('transactionCount').textContent='อ่านรายการไม่สำเร็จ';
     $('transactionList').innerHTML='<div class="empty">'+esc(error.message)+' <button class="secondary" onclick="loadTransactions()">ลองใหม่</button></div>';
   }}
+}
+function updateReportButtons() {
+  const disabled = transactionReportBusy || !transactionReportView;
+  $('exportTransactionsPdf').disabled = disabled;
+  $('exportTransactionsXlsx').disabled = disabled;
+}
+async function exportTransactions(format) {
+  const view = transactionReportView;
+  if (!view || transactionReportBusy || JSON.stringify(view.filters) !== JSON.stringify(currentFilters())) return;
+  const button = $(format === 'pdf' ? 'exportTransactionsPdf' : 'exportTransactionsXlsx');
+  const label = button.textContent;
+  transactionReportBusy = true;
+  updateReportButtons();
+  button.textContent = 'กำลังสร้างไฟล์…';
+  try {
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(view.items)));
+    const digest = btoa(String.fromCharCode(...new Uint8Array(hash))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+    const blob = await cloudRequest('/api/transactions/report', { format, filters: view.filters, digest }, undefined, false, true);
+    const fileUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const date = view.filters.date || view.filters.month || view.filters.date_from || view.filters.date_to || BOOT.today;
+    link.href = fileUrl;
+    link.download = `finance-transactions-${date}.${format}`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(fileUrl), 60000);
+  } catch (error) {
+    if (error.code === 'REPORT_VIEW_CHANGED') await loadTransactions();
+    fail(error);
+  } finally {
+    transactionReportBusy = false;
+    button.textContent = label;
+    updateReportButtons();
+  }
 }
 function showPage(name) {
   if (name === 'Company') { location.assign('https://company-expenses-ledger.sugrid-kumpa.workers.dev/finance/?from=finance#transactions'); return; }
@@ -877,7 +918,12 @@ document.addEventListener('click', event => {
 $('helpDialog').addEventListener('cancel', event => { event.preventDefault(); closeHelp(); });
 ['filterPeriod', 'filterMonth', 'filterDate', 'filterDateFrom', 'filterDateTo', 'filterType', 'filterOwner', 'filterAccount', 'filterCategory'].forEach(id =>
   $(id).addEventListener('change', loadTransactions));
-$('filterSearch').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadTransactions, 250); });
+$('filterSearch').addEventListener('input', () => {
+  transactionReportView = null;
+  updateReportButtons();
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadTransactions, 250);
+});
 $('debtDueMonthEdit').addEventListener('change',updateDebtDueMonth);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
 installDialogScrollLock();

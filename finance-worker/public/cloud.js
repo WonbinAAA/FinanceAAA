@@ -23,15 +23,16 @@ async function cloudSession() {
   }).catch(error => { cloudSessionPromise = null; throw error; });
   return cloudSessionPromise;
 }
-async function cloudRequest(path, body, key, renewed = false) {
+async function cloudRequest(path, body, key, renewed = false, binary = false) {
   const auth = await cloudSession();
   const response = await fetch(path, { method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': auth.csrf_token, ...(key ? { 'Idempotency-Key': key } : {}) },
     body: JSON.stringify(body) });
+  if (response.ok && binary) return response.blob();
   const data = await response.json();
   if (cloudPublicAccess && !renewed && (response.status === 401 || response.status === 403 && data.code === 'CSRF_REJECTED')) {
     cloudSessionPromise = null;
-    return cloudRequest(path, body, key, true);
+    return cloudRequest(path, body, key, true, binary);
   }
   if (response.status === 401 && !cloudPublicAccess) { location.assign('/login'); throw new Error('กรุณาเข้าสู่ระบบใหม่'); }
   if (!response.ok) { const error = new Error(data.error || 'ดำเนินการไม่สำเร็จ'); error.code = data.code; error.status = response.status; error.serverResponse = true; throw error; }

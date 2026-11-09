@@ -6,6 +6,9 @@ import { prepareImport, reconciliation } from './migration.js';
 import { protectCompanyWrites } from './company-link.js';
 import { readCompanySummary } from './company-summary.js';
 import { readCompanyBook, displayLedger } from './company-view.js';
+import { transactionReport } from './report-data.js';
+import { makeTransactionPdf } from './report-pdf.js';
+import { makeTransactionXlsx } from './report-xlsx.js';
 
 async function bodyJson(request, max = 65536) {
   if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) throw new AppError('ต้องส่งข้อมูล JSON', 415);
@@ -34,6 +37,50 @@ function secure(response) {
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function readDisplayTransactions(env, snapshot, filters) {
+  // Keep the same date validation and accounting/source selection for the list and both reports.
+  executeFinance(snapshot, 'getTransactions', [filters]);
+  const [book, links] = await Promise.all([
+    readCompanyBook(env),
+    env.DB.prepare('SELECT s.id AS source_id,s.revision,g.transaction_id,g.config_json FROM company_link_sources s JOIN company_link_groups g ON s.group_id=g.id').all(),
+  ]);
+  const rows = executeFinance(snapshot, 'getTransactions', [{}]).result;
+  return displayLedger(rows, book, links.results, filters, snapshot.tables['บัญชี'].rows, snapshot.tables['หมวดหมู่'].rows);
+}
+
+const reportMime = {
+  pdf: 'application/pdf',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+const reportFilterKeys = new Set(['month', 'date', 'date_from', 'date_to', 'type', 'owner', 'account_id', 'category_id', 'query']);
+
+async function downloadTransactionReport(url, env, body) {
+  const { format, filters, digest } = body || {};
+  if (!Object.hasOwn(reportMime, format) || !filters || typeof filters !== 'object' || Array.isArray(filters)
+    || Object.entries(filters).some(([key, value]) => !reportFilterKeys.has(key) || typeof value !== 'string')
+    || typeof digest !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(digest)) {
+    throw new AppError('รูปแบบคำขอรายงานไม่ถูกต้อง');
+  }
+  const snapshot = await loadSnapshot(env.DB);
+  const items = await readDisplayTransactions(env, snapshot, filters);
+  if (await sha256(JSON.stringify(items)) !== digest) {
+    throw new AppError('รายการเปลี่ยนแล้ว กรุณาตรวจรายการล่าสุดแล้วส่งออกอีกครั้ง', 409, 'REPORT_VIEW_CHANGED');
+  }
+  if (!items.length) throw new AppError('ไม่มีรายการตามตัวกรองสำหรับส่งออก');
+  const report = transactionReport(items, filters, snapshot.tables);
+  let bytes;
+  if (format === 'pdf') {
+    const font = await env.ASSETS.fetch(new Request(new URL('/Sarabun-Regular.ttf', url)));
+    if (!font.ok) throw new AppError('โหลดแบบอักษรรายงานไม่สำเร็จ กรุณาลองใหม่', 503);
+    bytes = await makeTransactionPdf(report, new Uint8Array(await font.arrayBuffer()));
+  } else {
+    bytes = makeTransactionXlsx(report);
+  }
+  return new Response(bytes, { headers: {
+    'Content-Type': reportMime[format], 'Content-Disposition': `attachment; filename="finance-transactions.${format}"`,
+  } });
 }
 
 async function route(request, env) {
@@ -72,8 +119,9 @@ async function route(request, env) {
   if (url.pathname.startsWith('/api/')) {
     if (request.method !== 'POST') throw new AppError('ไม่รองรับวิธีเรียกนี้', 405);
     requireCsrf(request, auth, env);
-    if (!['/api/rpc', '/api/import/preview', '/api/import/commit'].includes(url.pathname)) throw new AppError('ไม่พบคำสั่ง', 404);
+    if (!['/api/rpc', '/api/import/preview', '/api/import/commit', '/api/transactions/report'].includes(url.pathname)) throw new AppError('ไม่พบคำสั่ง', 404);
     const body = await bodyJson(request, url.pathname.startsWith('/api/import/') ? 5 * 1024 * 1024 : 65536);
+    if (url.pathname === '/api/transactions/report') return downloadTransactionReport(url, env, body);
     const method = body.method;
     if (url.pathname === '/api/rpc' && !METHODS.has(method) && method !== 'getDisplayTransactions') throw new AppError('ไม่รองรับคำสั่งนี้', 404);
     const writing = url.pathname === '/api/import/commit' || WRITES.has(method);
@@ -89,11 +137,7 @@ async function route(request, env) {
     if(method==='getDisplayTransactions'){
       if(!Array.isArray(body.args)||body.args.length>1||body.args[0]&&typeof body.args[0]!=='object')throw new AppError('รูปแบบคำขอไม่ถูกต้อง');
       const filters=body.args[0]||{};
-      // Validate date filters using the same engine, without changing any accounting state.
-      executeFinance(before,'getTransactions',[filters]);
-      const [book,links]=await Promise.all([readCompanyBook(env),env.DB.prepare('SELECT s.id AS source_id,s.revision,g.transaction_id,g.config_json FROM company_link_sources s JOIN company_link_groups g ON s.group_id=g.id').all()]);
-      const rows=executeFinance(before,'getTransactions',[{}]).result;
-      return json(displayLedger(rows,book,links.results,filters,before.tables['บัญชี'].rows,before.tables['หมวดหมู่'].rows));
+      return json(await readDisplayTransactions(env, before, filters));
     }
     if (url.pathname === '/api/import/preview') {
       const { snapshot, ...preview } = await prepareImport(before, body.export);
