@@ -95,7 +95,7 @@ test('import preview is read-only and commit requires matching source totals', a
 
 test('reports export the displayed filter, separate transfers, and reject stale or unauthenticated requests', async () => {
   const { env, request } = await setup();
-  env.COMPANY_LEDGER = { fetch: async () => Response.json({ owner: { id: 'owner' }, entries: [], refs: [] }) };
+  env.COMPANY_LEDGER = { fetch: async () => { throw new Error('Company site unavailable'); } };
   const font = await readFile(new URL('../public/Sarabun-Regular.ttf', import.meta.url));
   env.ASSETS = { fetch: async () => new Response(font) };
   let snapshot = fixture();
@@ -104,6 +104,7 @@ test('reports export the displayed filter, separate transfers, and reject stale 
     transaction({ amount: 3.25, description: '=1+1 & อาหาร' }),
     transaction({ transaction_type: 'TRANSFER', to_account_id: 'ACC2', amount: 15 }),
     transaction({ status: 'DRAFT', amount: 99 }),
+    transaction({ expense_owner: 'COMPANY', company_funding: 'PERSONAL', amount: 42, description: 'รายการบริษัทจำลอง' }),
     transaction({ transaction_date: '2026-10-31', amount: 25 }),
   ]) snapshot = executeFinance(snapshot, 'saveTransaction', [entry]).snapshot;
   await commitSnapshot(env.DB, await loadSnapshot(env.DB), snapshot, 'seed-report', 'seed-report', {});
@@ -131,7 +132,7 @@ test('reports export the displayed filter, separate transfers, and reject stale 
   assert.match(sheet, /<v>96\.75<\/v>/);
   assert.match(sheet, /=1\+1 &amp; อาหาร/);
   assert.match(sheet, /ฉบับร่าง/);
-  assert.doesNotMatch(sheet, /<f>=1\+1|<v>99<\/v>|<v>25<\/v>/);
+  assert.doesNotMatch(sheet, /<f>=1\+1|<v>99<\/v>|<v>25<\/v>|รายการบริษัทจำลอง/);
   const pdf = await worker.fetch(request(path, { ...body, format: 'pdf' }), env);
   assert.equal(pdf.status, 200);
   assert.equal(pdf.headers.get('Content-Type'), 'application/pdf');

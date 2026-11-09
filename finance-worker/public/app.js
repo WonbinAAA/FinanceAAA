@@ -14,6 +14,7 @@ let toastTimer = null;
 let searchTimer = null;
 let refreshRequest = 0;
 let transactionRequest = 0;
+let latestViewRequest = 0;
 let transactionReportView = null;
 let transactionReportBusy = false;
 let todayRefreshTimer = null;
@@ -331,9 +332,8 @@ function renderDashboard(data) {
   $('todayExpenseCard').disabled=!today?.date;
   $('todayExpenseDate').textContent=today?.date?dateTH(today.date):'วันนี้';
   $('todayPersonalExpense').textContent=money(today?.personal_expense||0);
-  $('todayCompanyExpense').textContent=money(today?.company_expense||0);
   $('todayExpenseHint').textContent=!today?.date?'กำลังโหลดข้อมูลวันนี้...':
-    Number(today.personal_expense)>0||Number(today.company_expense)>0?'ทุกบัญชี':'ยังไม่มีค่าใช้จ่ายวันนี้';
+    Number(today.personal_expense)>0?'ทุกบัญชี':'ยังไม่มีค่าใช้จ่ายส่วนตัววันนี้';
 }
 function renderMutation(result) {
   if (!result) return;
@@ -509,15 +509,15 @@ function syncTransactionPeriod() {
 }
 function renderTransactionFilterCategories(selected = $('filterCategory').value) {
   const type = $('filterType').value, owner = $('filterOwner').value;
-  const items = (BOOT?.filterCategories || BOOT?.categories || []).filter(item =>
-    !type || type === item.transaction_type && (type !== 'EXPENSE' || categoryFits(item, type, owner)));
+  const items = (BOOT?.filterCategories || BOOT?.categories || []).filter(item => !item.company_only &&
+    (!type || type === item.transaction_type && (type !== 'EXPENSE' || categoryFits(item, type, owner))));
   $('filterCategory').innerHTML = '<option value="">ทุกหมวดหมู่</option>' + items
     .map(item => option(item.category_id, item.category_name + (categoryActive(item) ? '' : ' (หยุดใช้)'))).join('');
   $('filterCategory').value = items.some(item => item.category_id === selected) ? selected : '';
 }
 function selectTransactionView(view, reload=true) {
   const filters = {
-    all: ['', ''], personal: ['EXPENSE', 'PERSONAL'], company: ['EXPENSE', 'COMPANY'],
+    all: ['', ''], personal: ['EXPENSE', 'PERSONAL'],
     income: ['INCOME', ''], transfer: ['TRANSFER', '']
   };
   if (!filters[view]) return;
@@ -615,7 +615,6 @@ function showPage(name) {
   window.scrollTo(0, 0);
 }
 async function openDetail(id) {
-  if(id.startsWith('company:')){await openCompanySourceDetail(id);return;}
   if (!requireFreshData()) return;
   try {
     const item = await server('getTransaction', id);

@@ -68,6 +68,7 @@ button:disabled{cursor:default}
 .today-expenses-heading b{font-size:14px;font-weight:600}
 .today-expenses-date{color:#96879e;background:#f6f3fa;border-radius:6px;font-size:11px;padding:5px 9px}
 .today-expenses-values{margin:16px 0;gap:20px}
+.finance-overview .today-expenses-values:has(> :only-child){grid-template-columns:minmax(0,1fr)}
 .today-expenses-personal>b{font-size:30px;font-weight:600;letter-spacing:-.5px;color:#ca6a83}
 .today-expenses-personal>span{color:#a18b97}
 .today-expenses-company{background:#f8f6fd;border:1px solid #efe9f8;border-radius:8px;padding:12px 16px}
@@ -314,7 +315,6 @@ body{background:radial-gradient(ellipse at 85% 0%,#f1e6ff 0,transparent 45%),var
 
 /* Requested compact dashboard and company-style entry form. */
 .finance-category.food{background:#fff0d6;color:#ce8420}.finance-category.drink{background:#f5e7dc;color:#a46c49}.finance-category.phone{background:#e4efff;color:#477ac4}.finance-category.transport{background:#e3f4ff;color:#3787b7}.finance-category.health{background:#ffe5ed;color:#d9517b}.finance-category.finance{background:#e3f5ec;color:#31946a}.finance-category.gift{background:#fce7f1;color:#bf6092}.finance-category.entertainment{background:#eee6ff;color:#8b60c1}.finance-category.shopping{background:#e8edff;color:#697cc5}
-#companySourceDialog .detail-grid dd{white-space:pre-wrap}#companySourceDialog .primary{text-align:center;text-decoration:none;display:block;padding:13px;border-radius:12px}
 .topbar-title{min-width:0;flex:1}.topbar-title>div{min-width:0}.topbar-title h1{max-width:none;overflow:visible;text-overflow:clip;white-space:nowrap}
 .dashboard-company-copy{white-space:nowrap}.hero .dashboard-company-funds.company-net-positive{background:#ecfbf1;border-color:#bce7ca}.hero .company-net-positive .dashboard-company-copy,.hero .company-net-positive>b,.hero .company-net-positive .dashboard-company-arrow{color:#15804a}.hero .company-net-positive .dashboard-company-icon{background:#d4f2df;color:#15804a}
 #company{color:var(--text,#302b3f)}.metric-company.is-reserve #company,.metric-company.is-reserve #companyReserveLabel{color:#d44360}.metric-company.is-reserve .metric-icon{color:#d44360;background:#ffe8ee}

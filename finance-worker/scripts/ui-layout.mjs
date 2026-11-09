@@ -80,8 +80,6 @@ function refineLedgerJavaScript(js) {
 function refineRequestedWorkspace(html){
   html=html.replace('<p>รายรับ · รายจ่าย · เงินบริษัท · โอนเงิน</p>','');
   html=html.replace('<p>แตะรายการเพื่อดูรายละเอียด แก้ไข หรือยกเลิก</p>','');
-  if(!html.includes('src="/company-view.js"'))html=html.replace('<script src="/app.js"></script>','<script src="/company-view.js"></script>\n<script src="/app.js"></script>');
-  if(!html.includes('id="companySourceDialog"'))html=html.replace('<dialog id="entryDialog">',`<dialog id="companySourceDialog"><div class="dialog-body"><div class="dialog-head"><h2>รายละเอียดรายการบริษัท</h2><button class="close" aria-label="ปิดรายละเอียดบริษัท" onclick="$('companySourceDialog').close()">×</button></div><div id="companySourceContent"></div><a class="primary" href="https://company-expenses-ledger.sugrid-kumpa.workers.dev/finance/?from=finance#transactions">เปิดเว็บบริษัท</a></div></dialog>\n<dialog id="entryDialog">`);
   html=html.replace(/<div class="finance-dashboard-heading">[\s\S]*?<\/div><span class="finance-heading-label">[\s\S]*?<\/span><\/div>/,'');
   html=html.replace(/<span id="layoutPageName"[^>]*>[\s\S]*?<\/span>/,'');
   html=html.replace('<small>รายการรับ-จ่ายล่าสุดของคุณ</small>','');
@@ -115,7 +113,6 @@ function refineRequestedJavaScript(js){
     $('latestList').innerHTML='<div class="empty">'+esc(error.message)+' <button class="secondary" onclick="renderLatest()">ลองใหม่</button></div>';
   }
 }`);
-  if(!js.includes("id.startsWith('company:')"))js=js.replace('async function openDetail(id) {',"async function openDetail(id) {\n  if(id.startsWith('company:')){await openCompanySourceDetail(id);return;}");
   if(!js.includes("$('transactionList').innerHTML='<div class=\"empty\">กำลังโหลด...</div>';"))js=js.replace("$('transactionCount').textContent='กำลังค้นหา...';","$('transactionCount').textContent='กำลังค้นหา...';\n  $('transactionList').innerHTML='<div class=\"empty\">กำลังโหลด...</div>';");
   js=js.replace('} catch (error) { if (request === transactionRequest) fail(error); }',`}
   catch(error){if(request===transactionRequest){

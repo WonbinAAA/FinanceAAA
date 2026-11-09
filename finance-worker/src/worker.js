@@ -5,7 +5,7 @@ import { loadSnapshot, receipt, commitSnapshot } from './storage.js';
 import { prepareImport, reconciliation } from './migration.js';
 import { protectCompanyWrites } from './company-link.js';
 import { readCompanySummary } from './company-summary.js';
-import { readCompanyBook, displayLedger } from './company-view.js';
+import { displayPersonalLedger } from './company-view.js';
 import { transactionReport } from './report-data.js';
 import { makeTransactionPdf } from './report-pdf.js';
 import { makeTransactionXlsx } from './report-xlsx.js';
@@ -40,14 +40,9 @@ function secure(response) {
 }
 
 async function readDisplayTransactions(env, snapshot, filters) {
-  // Keep the same date validation and accounting/source selection for the list and both reports.
-  executeFinance(snapshot, 'getTransactions', [filters]);
-  const [book, links] = await Promise.all([
-    readCompanyBook(env),
-    env.DB.prepare('SELECT s.id AS source_id,s.revision,g.transaction_id,g.config_json FROM company_link_sources s JOIN company_link_groups g ON s.group_id=g.id').all(),
-  ]);
-  const rows = executeFinance(snapshot, 'getTransactions', [{}]).result;
-  return displayLedger(rows, book, links.results, filters, snapshot.tables['บัญชี'].rows, snapshot.tables['หมวดหมู่'].rows);
+  const rows = executeFinance(snapshot, 'getTransactions', [filters]).result;
+  const links = await env.DB.prepare('SELECT transaction_id FROM company_link_groups').all();
+  return displayPersonalLedger(rows, links.results, snapshot.tables['หมวดหมู่'].rows, filters);
 }
 
 const reportMime = {

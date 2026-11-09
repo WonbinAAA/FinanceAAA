@@ -104,3 +104,24 @@ test('linked rows cannot clear known funding and insufficient self allowances ne
  await assert.rejects(applyCompanyEvent(env,event(source({id:'synthetic-self-empty',finance:config({kind:'SELF_ALLOWANCE',funding:'POOL'})}))),/เพียงพอ/);
  assert.equal(JSON.stringify(await loadSnapshot(env.DB)),before);
 });
+
+test('company project ID can receive advances and fund a self allowance without changing cash twice', async () => {
+  const env = await setup();
+  await baseline(env);
+  const before = await dashboard(env);
+  const projectName = 'company-project:' + 'a'.repeat(64);
+  const funding = { funding: 'PROJECT', projectName };
+  const advance = source({ id: 'new-project-advance', direction: 'income', amount_cents: 12000,
+    finance: config({ ...funding, kind: 'ADVANCE', categoryId: '' }) });
+  await applyCompanyEvent(env, event(advance));
+  const allowance = source({ id: 'new-project-self-allowance', amount_cents: 5000,
+    finance: config({ ...funding, kind: 'SELF_ALLOWANCE' }) });
+  const first = await applyCompanyEvent(env, event(allowance));
+  const second = await applyCompanyEvent(env, event(allowance));
+  assert.equal(first.transactionId, second.transactionId);
+  const after = await dashboard(env);
+  assert.equal(after.real_cash, before.real_cash + 120);
+  assert.equal(after.income, before.income + 50);
+  const state = await companyOptions(env, 'owner');
+  assert.equal(state.company.project_catalog.find(project => project.project_name === projectName).remaining, 70);
+});

@@ -66,8 +66,8 @@
     </section>
 
     <button id="todayExpenseCard" class="card today-expenses" type="button" onclick="openTodayExpenses()" aria-label="ดูรายการของวันนี้" disabled>
-      <span class="today-expenses-heading"><span><svg class="icon" aria-hidden="true"><use href="#icon-expense"></use></svg><b>ค่าใช้จ่ายวันนี้</b></span><span id="todayExpenseDate" class="today-expenses-date">วันนี้</span></span>
-      <span class="today-expenses-values"><span class="today-expenses-personal"><span>เงินส่วนตัว · รวมชำระหนี้</span><b id="todayPersonalExpense">฿0.00</b></span><span class="today-expenses-company"><span>เงินบริษัท</span><b id="todayCompanyExpense">฿0.00</b></span></span>
+      <span class="today-expenses-heading"><span><svg class="icon" aria-hidden="true"><use href="#icon-expense"></use></svg><b>ค่าใช้จ่ายส่วนตัววันนี้</b></span><span id="todayExpenseDate" class="today-expenses-date">วันนี้</span></span>
+      <span class="today-expenses-values"><span class="today-expenses-personal"><span>รวมชำระหนี้</span><b id="todayPersonalExpense">฿0.00</b></span></span>
       <span class="today-expenses-footer"><span id="todayExpenseHint">กำลังโหลดข้อมูลวันนี้...</span><span>ดูรายการวันนี้ <span aria-hidden="true">›</span></span></span>
     </button>
 
@@ -106,7 +106,6 @@
       <div class="transaction-view-switch" aria-label="แยกประเภทรายการ">
         <button type="button" data-view="all" aria-pressed="true" onclick="selectTransactionView('all')">ทั้งหมด</button>
         <button type="button" data-view="personal" aria-pressed="false" onclick="selectTransactionView('personal')">รายจ่ายส่วนตัว</button>
-        <button type="button" data-view="company" aria-pressed="false" onclick="selectTransactionView('company')">รายจ่ายบริษัท</button>
         <button type="button" data-view="income" aria-pressed="false" onclick="selectTransactionView('income')">รายรับ</button>
         <button type="button" data-view="transfer" aria-pressed="false" onclick="selectTransactionView('transfer')">โอนเงิน</button>
       </div>
@@ -197,7 +196,6 @@
     <button class="primary wide" onclick="closeHelp()">เข้าใจแล้ว</button>
   </div></dialog>
 
-  <dialog id="companySourceDialog"><div class="dialog-body"><div class="dialog-head"><h2>รายละเอียดรายการบริษัท</h2><button class="close" aria-label="ปิดรายละเอียดบริษัท" onclick="$('companySourceDialog').close()">×</button></div><div id="companySourceContent"></div><a class="primary" href="https://company-expenses-ledger.sugrid-kumpa.workers.dev/finance/?from=finance#transactions">เปิดเว็บบริษัท</a></div></dialog>
 <dialog id="entryDialog">
     <div class="dialog-body">
       <div class="dialog-head"><div><h2 id="entryDialogTitle">เพิ่มรายการ</h2></div><button class="close" aria-label="ปิดฟอร์ม" onclick="cancelDialog('entryDialog')">×</button></div>
@@ -295,7 +293,6 @@
   <script src="/cloud.js"></script>
 <script src="/ledger-view.js"></script>
 <script src="/company-net.js"></script>
-<script src="/company-view.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
