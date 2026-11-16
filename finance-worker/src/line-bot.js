@@ -3,6 +3,7 @@ import { sha256 } from './auth.js';
 import { baht, lineInputChoices, listLineChoices, parseAmount, parseDate, prepareLineDraft, saveLineDraft } from './line-ledger.js';
 import { downloadSlip, readLimitedBody, readSlip } from './line-slip.js';
 import { defaultLineAccount, initialLineInput, missingLineInput, readLineInput } from './line-input.js';
+import { draftCard, isPersonalExpense, parseDraftCardAction, personalExpenseFields } from './line-card.js';
 
 const thaiDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Bangkok' });
 const draftAge = 24 * 60 * 60 * 1000;
@@ -61,16 +62,6 @@ function code(row) {
   return row.id + (row.version ? '-' + row.version : '');
 }
 
-function personalExpenseFields({ cents, date, account, item, note }) {
-  return [
-    'จำนวนเงิน ' + (cents ? baht(cents) + ' บาท' : '—'),
-    'วันที่ ' + (date ? date.split('-').reverse().join('/') : '—'),
-    'บัญชีที่ใช้จ่าย ' + (account || '—'),
-    'ประเภทรายจ่าย ' + (item || '—'),
-    'รายละเอียด ' + (note || '—'),
-  ];
-}
-
 function guidedMessage(row, options = {}, issue = '') {
   const entry = JSON.parse(row.entry_json);
   const missing = missingLineInput(entry);
@@ -78,10 +69,10 @@ function guidedMessage(row, options = {}, issue = '') {
   const itemLabel = entry.scope === 'ส่วนตัว' ? 'หมวด' : 'รายการ';
   const account = options.accounts?.find(value => value.id === entry.account)?.name ?? entry.account;
   const item = options.categories?.find(value => value.id === entry.item)?.name ?? entry.item;
-  const personalExpense = entry.scope === 'ส่วนตัว' && entry.direction === 'expense';
+  const personalExpense = isPersonalExpense(entry);
   const lines = ['ร่าง' + (entry.fromImage ? 'สลิป' : '') + ' · ' + entry.scope];
   if (personalExpense) {
-    lines.push(...personalExpenseFields({ ...entry, account, item }));
+    lines.push(...personalExpenseFields({ ...entry, account, item }).map(([label, value]) => label + ' ' + value));
   } else {
     const overview = [entry.direction === 'income' ? 'รายรับ' : entry.direction === 'expense' ? 'รายจ่าย' : '',
       entry.cents ? baht(entry.cents) + ' บาท' : '', entry.date || '', account || ''].filter(Boolean).join(' · ');
@@ -137,25 +128,7 @@ function draftMessage(row) {
     [['ยกเลิก', 'ยกเลิก ' + code(row)]]);
   }
   const { summary } = JSON.parse(row.draft_json);
-  const lines = [row.state === 'saving' ? 'กำลังตรวจผลการบันทึก ' + code(row) : 'ตรวจร่าง ' + code(row)];
-  if (summary.scope === 'ส่วนตัว' && summary.direction === 'expense') {
-    lines.push('รายจ่ายส่วนตัว', ...personalExpenseFields(summary));
-  } else {
-    lines.push((summary.direction === 'income' ? 'รับ' : 'จ่าย') + ' · ' + summary.scope,
-      'ยอด ' + baht(summary.cents) + ' บาท', 'วันที่ ' + summary.date,
-      'บัญชี ' + summary.account, (summary.scope === 'บริษัท' ? 'รายการ ' : 'หมวด ') + summary.item);
-    if (summary.project) lines.push('โครงการ ' + summary.project);
-    if (summary.vehicle) lines.push('ทะเบียน ' + summary.vehicle);
-    if (summary.lodging) lines.push('ที่พัก ' + summary.lodging);
-    if (summary.note) lines.push('หมายเหตุ ' + summary.note);
-    if (summary.personalCents !== undefined) lines.push('ยอดที่ต้องสำรองจ่าย ' + baht(summary.personalCents) + ' บาท');
-  }
-  const buttons = [[row.state === 'saving' ? 'ตรวจผลอีกครั้ง' : 'ยืนยันบันทึก', 'ยืนยัน ' + code(row)]];
-  if (row.state === 'ready') {
-    if (row.entry_json) buttons.push(['แก้ไข', 'แก้ไข ' + code(row)]);
-    buttons.push(['ยกเลิก', 'ยกเลิก ' + code(row)]);
-  }
-  return message(lines.join('\n'), buttons);
+  return draftCard(summary, code(row), row.state, Boolean(row.entry_json));
 }
 
 async function draftId(owner, event) {
@@ -395,16 +368,23 @@ async function textCommand(env, owner, event, now) {
 }
 
 async function handleEvent(env, event, owners) {
-  if (event.type !== 'message' || event.source?.type !== 'user' || !owners.has(event.source.userId)
+  if (!['message', 'postback'].includes(event.type) || event.source?.type !== 'user' || !owners.has(event.source.userId)
     || !/^[A-Za-z0-9_-]{1,128}$/.test(event.replyToken ?? '')
     || !/^[A-Za-z0-9_-]{1,100}$/.test(event.webhookEventId ?? '') || !Number.isSafeInteger(event.timestamp)) return;
+  const cardAction = event.type === 'postback' ? parseDraftCardAction(event.postback?.data) : null;
+  if (event.type === 'postback' && !cardAction) return;
   const owner = await sha256(event.source.userId);
   const now = Date.now();
   let response;
   try {
     await env.DB.prepare("UPDATE line_drafts SET state='expired',scan_json=NULL,draft_json=NULL,entry_json=NULL "
       + "WHERE state IN ('details','ready') AND created_at<=?").bind(now - draftAge).run();
-    if (event.message?.type === 'image') response = await receiveImage(env, owner, await draftId(owner, event), event, now);
+    if (cardAction) {
+      const { action, id, version } = cardAction;
+      response = action === 'edit'
+        ? await editGuidedDraft(env, owner, await getDraft(env.DB, owner, id), version, event)
+        : await actOnDraft(env, owner, id, version, action === 'cancel' ? 'ยกเลิก' : 'ยืนยัน', now);
+    } else if (event.message?.type === 'image') response = await receiveImage(env, owner, await draftId(owner, event), event, now);
     else if (event.message?.type === 'text' && typeof event.message.text === 'string') response = await textCommand(env, owner, event, now);
     else response = message('ส่งข้อความหรือรูปสลิปเพื่อสร้างรายการค่ะ');
   } catch (error) {
