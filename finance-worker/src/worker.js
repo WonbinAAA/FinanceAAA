@@ -9,6 +9,7 @@ import { displayPersonalLedger } from './company-view.js';
 import { transactionReport } from './report-data.js';
 import { makeTransactionPdf } from './report-pdf.js';
 import { makeTransactionXlsx } from './report-xlsx.js';
+import { lineWebhook } from './line-bot.js';
 
 async function bodyJson(request, max = 65536) {
   if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) throw new AppError('ต้องส่งข้อมูล JSON', 415);
@@ -78,8 +79,9 @@ async function downloadTransactionReport(url, env, body) {
   } });
 }
 
-async function route(request, env) {
+async function route(request, env, context) {
   const url = new URL(request.url);
+  if (url.pathname === '/webhooks/line') return lineWebhook(request, env, context);
   if (url.pathname === '/health' && request.method === 'GET') return json({ ok: true, service: 'finance-worker' });
   const isPublic = publicAccess(env);
   if (isPublic && url.pathname === '/api/session' && request.method === 'GET') return publicSessionResponse(request, env);
@@ -155,7 +157,7 @@ async function route(request, env) {
   return env.ASSETS.fetch(request);
 }
 
-export default { async fetch(request, env) {
-  try { return secure(await route(request, env)); }
+export default { async fetch(request, env, context) {
+  try { return secure(await route(request, env, context)); }
   catch (error) { return secure(errorResponse(error)); }
 } };

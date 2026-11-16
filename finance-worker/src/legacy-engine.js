@@ -305,19 +305,26 @@ function validateTx_(input,allowedInactiveCategoryId,allowedLegacyCategoryId,his
     source_type:source,attachment_url:String(input.attachment_url||"").trim(),ai_status:String(input.ai_status||"NONE"),status};
 }
 function newTx_(fields) { const t=now_(); return Object.assign({transaction_id:id_("TX"),user_id:USER_ID,created_at:t,updated_at:t,void_reason:""},fields); }
-function saveTransaction(input) { return withLock_(()=>{
+function persistTransaction_(input, confirmedLine=false) {
   const tx=newTx_(validateTx_(input));
   const allocations=planCompanyTransaction_(tx,input,'');
   prepareCompanyTx_(tx);
   checkCompanyChange_(tx);
-  if(tx.source_type!=="WEB"&&tx.status!=="DRAFT") throw new Error("รายการจาก LINE/IMPORT ต้องบันทึกเป็น DRAFT ก่อนยืนยัน");
+  if(!confirmedLine&&tx.source_type!=="WEB"&&tx.status!=="DRAFT") throw new Error("รายการจาก LINE/IMPORT ต้องบันทึกเป็น DRAFT ก่อนยืนยัน");
   appendObj_(SH.TX,tx);
   if(tx.status==="ACTIVE"&&isCompanyExpense_(tx)) createClaim_(tx);
   if(allocations.length) addMatches_(tx.transaction_id,allocations);
   if(allocations.length||tx.project_name||tx.company_kind||tx.company_funding) updateClaimTotals_();
-  audit_("TRANSACTION",tx.transaction_id,"CREATE","","",JSON.stringify(tx),"");
-  return transactionMutationResult_({id:tx.transaction_id});
-}); }
+  audit_("TRANSACTION",tx.transaction_id,"CREATE","","",JSON.stringify(tx),"",confirmedLine?"LINE":"WEB");
+  return tx.transaction_id;
+}
+
+function saveTransaction(input) { return withLock_(()=>transactionMutationResult_({id:persistTransaction_(input)})); }
+
+// The webhook owns and verifies its draft before calling this internal operation.
+function recordConfirmedLineTransaction(input) {
+  return withLock_(()=>persistTransaction_({...input,source_type:"LINE",status:"ACTIVE"},true));
+}
 
 function createClaim_(tx) {
   if(rows_(SH.CLAIMS).some(c=>c.transaction_id===tx.transaction_id)) return;
@@ -946,5 +953,5 @@ function payRecurring(input) { return withLock_(()=>{
 const debtOps = createDebtOperations({ SH, rows: rows_, append: appendObj_, ensure: ensureColumn_, audit: audit_,
   now: now_, today: today_, date: isoDate_, id: id_, validateTx: validateTx_, newTx: newTx_,
   category: debtPaymentCategory_, mutate: transactionMutationResult_, lock: withLock_, setMonthlyDue: setDebtMonthlyDue });
-return { api: {getConnectionStatus,getBootstrap,getDashboard,getCategories,getTransactions,getTransaction,getLatestTransactions,getCompanySummary,getCompanyFundingPreview,getCompanyReceiptPreview,getCompanyProjectClosePreview,getCompanyAdvanceCandidates,getReimbursementPreview,getDebts,getRecurringDue,reconcileDatabase,saveTransaction,updateTransaction,voidTransaction,confirmDraft,setAccountAvailable,createCategory,updateCategory,renameCategory,setCategoryActive,moveCategory,createCompanyProject,closeCompanyProject,reclassifyCompanyAdvance,setDebtMonthlyDue,saveDebtPlan,renameDebt,createRecurring,deactivateRecurring,payRecurring, ...debtOps}, snapshot: adapter.snapshot };
+return { api: {getConnectionStatus,getBootstrap,getDashboard,getCategories,getTransactions,getTransaction,getLatestTransactions,getCompanySummary,getCompanyFundingPreview,getCompanyReceiptPreview,getCompanyProjectClosePreview,getCompanyAdvanceCandidates,getReimbursementPreview,getDebts,getRecurringDue,reconcileDatabase,saveTransaction,updateTransaction,voidTransaction,confirmDraft,setAccountAvailable,createCategory,updateCategory,renameCategory,setCategoryActive,moveCategory,createCompanyProject,closeCompanyProject,reclassifyCompanyAdvance,setDebtMonthlyDue,saveDebtPlan,renameDebt,createRecurring,deactivateRecurring,payRecurring, ...debtOps}, snapshot: adapter.snapshot, recordConfirmedLineTransaction };
 }
