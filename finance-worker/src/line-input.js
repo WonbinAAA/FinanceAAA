@@ -6,11 +6,14 @@ export const defaultLineAccount = 'กรุงไทย';
 const localDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Bangkok' });
 const day = 24 * 60 * 60 * 1000;
 const normalize = value => String(value ?? '').normalize('NFKC').trim().toLowerCase();
+const escapePattern = value => value.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&');
 const directions = { รับ: 'income', รายรับ: 'income', จ่าย: 'expense', รายจ่าย: 'expense' };
 const fields = { บัญชี: 'account', หมวด: 'item', รายการ: 'item', วันที่: 'date', ยอด: 'cents',
+  บัญชีที่ใช้จ่าย: 'account', ประเภทรายจ่าย: 'item', จำนวนเงิน: 'cents', รายละเอียด: 'note',
   โครงการ: 'project', ทะเบียน: 'vehicle', ที่พัก: 'lodging', หมายเหตุ: 'note' };
 const dateNumbers = /[0-9๐-๙]{1,4}[-/][0-9๐-๙]{1,2}(?:[-/][0-9๐-๙]{1,4})?/gu;
 const moneyNumber = /-?[0-9๐-๙][0-9๐-๙,.]*/gu;
+const currencyAmount = /(-?[0-9๐-๙][0-9๐-๙,.]*)\s*(?:บาท|บ\.)/gu;
 const directionLabel = { income: 'รายรับ', expense: 'รายจ่าย' };
 
 export function initialLineInput(scope, timestamp, scan = null) {
@@ -55,7 +58,7 @@ function matchingAccounts(text, accounts) {
 
 function namedAmount(text) {
   const cleaned = text.replace(dateNumbers, ' ').replace(/วันที่\s*[0-9๐-๙]+/gu, ' ');
-  const withCurrency = [...cleaned.matchAll(/(-?[0-9๐-๙][0-9๐-๙,.]*)\s*(?:บาท|บ\.)/gu)].map(match => match[1]);
+  const withCurrency = [...cleaned.matchAll(currencyAmount)].map(match => match[1]);
   const numbers = withCurrency.length ? withCurrency : [...cleaned.matchAll(moneyNumber)].map(match => match[0]);
   const exact = parseAmount(text);
   const mayBeCount = /[0-9๐-๙]\s*(?:ชุด|ชิ้น|คน|กล่อง|ถุง|แก้ว|แพ็ก|แผง|รอบ)/u.test(cleaned);
@@ -67,6 +70,38 @@ function groundedDescription(text, candidate) {
   if (typeof candidate !== 'string' || normalize(candidate).length < 2 || !normalize(text).includes(normalize(candidate)))
     return '';
   return candidate.trim().slice(0, 180);
+}
+
+function namedExpenseCategory(text, categories) {
+  const withoutVerb = text.replace(/^(?:จ่าย|ซื้อ|กิน|ทาน|รับประทาน)\s*/u, '');
+  const matches = categories.filter(category => category.direction === 'expense').flatMap(category => {
+    const name = category.name.trim();
+    if (!name) return [];
+    const pattern = new RegExp('^' + escapePattern(name), 'iu');
+    const matchingText = pattern.test(text) ? text : pattern.test(withoutVerb) ? withoutVerb : null;
+    return matchingText ? [{ category, name, rest: matchingText.slice(name.length) }] : [];
+  }).sort((first, second) => second.name.length - first.name.length);
+  const [longest, next] = matches;
+  return longest && longest.name.length !== next?.name.length ? longest : null;
+}
+
+function expenseDetails(rest, amount, account, date) {
+  let details = rest;
+  if (account) {
+    const accountPattern = new RegExp('(?:บัญชี|จ่ายผ่าน|หักจาก)?\\s*' + escapePattern(account.name), 'iu');
+    details = details.replace(accountPattern, ' ');
+  }
+  if (date) {
+    details = details.replace(/วันนี้|เมื่อวาน(?:ซืน)?/gu, ' ')
+      .replace(dateNumbers, candidate => parseDate(candidate) === date ? ' ' : candidate);
+  }
+  const tagged = details.replace(currencyAmount, ' ');
+  if (tagged !== details) details = tagged;
+  else if (amount) {
+    details = details.replace(/([0-9๐-๙][0-9๐-๙,.]*)\s*$/u, (phrase, value) =>
+      parseAmount(value) === amount ? ' ' : phrase);
+  }
+  return details.replace(/^[\s:–—-]+|[\s:–—-]+$/gu, '').replace(/\s+/gu, ' ').slice(0, 180);
 }
 
 const instruction = 'Read only the Thai message describing a single bookkeeping entry. Return one JSON object with '
@@ -93,7 +128,9 @@ export async function readLineInput(env, previous, text, timestamp, choices) {
   ], 240);
   if (result?.direction === 'unsupported')
     throw new AppError('กรุณาส่งรายรับหรือรายจ่ายทีละรายการค่ะ สำหรับโอนระหว่างบัญชี ชำระหนี้ หรือเบี้ยเลี้ยง ให้ใช้เมนูในเว็บ');
+  const expenseMatch = namedExpenseCategory(text, categories);
   if (Object.hasOwn(directionLabel, result?.direction)) setDirection(entry, result.direction);
+  else if (expenseMatch && !entry.direction) setDirection(entry, 'expense');
   const { amount, explicit, ambiguous } = namedAmount(text);
   const mentionsDate = /วันที่|เมื่อวัน(?:จันทร์|อังคาร|พุธ|พฤหัส|ศุกร์|เสาร์|อาทิตย์)|[0-9๐-๙][-/][0-9๐-๙]|[0-9๐-๙]\s+(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)/u
     .test(text) || result?.dateMentioned === true;
@@ -113,6 +150,9 @@ export async function readLineInput(env, previous, text, timestamp, choices) {
   const description = groundedDescription(text, result?.description);
   if (entry.scope === 'บริษัท') {
     if (description) entry.item = description;
+  } else if (entry.direction === 'expense' && expenseMatch) {
+    entry.item = expenseMatch.category.id;
+    entry.note = expenseDetails(expenseMatch.rest, amount, accountMatches.length === 1 ? accountMatches[0] : null, entry.date);
   } else {
     const validCategories = categories.filter(category => category.direction === entry.direction);
     const category = validCategories.find(category => category.id === result?.categoryId)

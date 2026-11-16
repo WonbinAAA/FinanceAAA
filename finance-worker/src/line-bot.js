@@ -61,6 +61,16 @@ function code(row) {
   return row.id + (row.version ? '-' + row.version : '');
 }
 
+function personalExpenseFields({ cents, date, account, item, note }) {
+  return [
+    'จำนวนเงิน ' + (cents ? baht(cents) + ' บาท' : '—'),
+    'วันที่ ' + (date ? date.split('-').reverse().join('/') : '—'),
+    'บัญชีที่ใช้จ่าย ' + (account || '—'),
+    'ประเภทรายจ่าย ' + (item || '—'),
+    'รายละเอียด ' + (note || '—'),
+  ];
+}
+
 function guidedMessage(row, options = {}, issue = '') {
   const entry = JSON.parse(row.entry_json);
   const missing = missingLineInput(entry);
@@ -68,22 +78,29 @@ function guidedMessage(row, options = {}, issue = '') {
   const itemLabel = entry.scope === 'ส่วนตัว' ? 'หมวด' : 'รายการ';
   const account = options.accounts?.find(value => value.id === entry.account)?.name ?? entry.account;
   const item = options.categories?.find(value => value.id === entry.item)?.name ?? entry.item;
-  const lines = [
-    'ร่าง' + (entry.fromImage ? 'สลิป' : '') + ' · ' + entry.scope,
-    [entry.direction === 'income' ? 'รายรับ' : entry.direction === 'expense' ? 'รายจ่าย' : '',
-      entry.cents ? baht(entry.cents) + ' บาท' : '', entry.date || '', account || ''].filter(Boolean).join(' · '),
-  ].filter(Boolean);
-  if (item) lines.push(itemLabel + ' ' + item);
+  const personalExpense = entry.scope === 'ส่วนตัว' && entry.direction === 'expense';
+  const lines = ['ร่าง' + (entry.fromImage ? 'สลิป' : '') + ' · ' + entry.scope];
+  if (personalExpense) {
+    lines.push(...personalExpenseFields({ ...entry, account, item }));
+  } else {
+    const overview = [entry.direction === 'income' ? 'รายรับ' : entry.direction === 'expense' ? 'รายจ่าย' : '',
+      entry.cents ? baht(entry.cents) + ' บาท' : '', entry.date || '', account || ''].filter(Boolean).join(' · ');
+    if (overview) lines.push(overview);
+    if (item) lines.push(itemLabel + ' ' + item);
+  }
   const next = {
     direction: entry.fromImage ? 'พิมพ์ว่ารับหรือจ่ายค่าอะไร เช่น “จ่ายค่าอาหาร” ค่ะ' : 'รายการนี้เป็นรายรับหรือรายจ่ายคะ?',
     cents: 'กรุณาพิมพ์ยอด เช่น ยอด=50 ค่ะ',
     date: 'กรุณาพิมพ์วันที่ เช่น วันที่=2026-11-16 ค่ะ',
     account: 'กรุณาเลือกบัญชี หรือพิมพ์ชื่อ เช่น บัญชี=กรุงไทย ค่ะ',
-    item: entry.scope === 'ส่วนตัว' ? 'กรุณาเลือกหมวด หรือพิมพ์ เช่น หมวด=อาหาร ค่ะ'
+    item: personalExpense ? 'กรุณาเลือกประเภทรายจ่าย หรือพิมพ์ เช่น ประเภทรายจ่าย=ข้าวเย็น ค่ะ'
+      : entry.scope === 'ส่วนตัว' ? 'กรุณาเลือกหมวด หรือพิมพ์ เช่น หมวด=อาหาร ค่ะ'
       : 'กรุณาพิมพ์ชื่อรายการ เช่น รายการ=ค่าอุปกรณ์สำนักงาน ค่ะ',
   };
   if (issue) lines.push(issue);
-  lines.push(next[missing] || 'พิมพ์ช่องที่ต้องการแก้ เช่น บัญชี=เงินสด, ยอด=50 หรือ วันที่=2026-11-16 ค่ะ');
+  const editHelp = personalExpense ? 'พิมพ์ช่องที่ต้องการแก้ เช่น จำนวนเงิน=50 หรือ รายละเอียด=ไก่ทอด ค่ะ'
+    : 'พิมพ์ช่องที่ต้องการแก้ เช่น บัญชี=เงินสด, ยอด=50 หรือ วันที่=2026-11-16 ค่ะ';
+  lines.push(next[missing] || editHelp);
   if (issue && entry.scope === 'บริษัท') lines.push('ระบุโครงการ ทะเบียน หรือที่พักได้ เช่น ทะเบียน=ชื่อทะเบียน ค่ะ');
   const buttons = [];
   if (missing === 'direction') buttons.push(['รายรับ', command('รายรับ')], ['รายจ่าย', command('รายจ่าย')]);
@@ -120,17 +137,19 @@ function draftMessage(row) {
     [['ยกเลิก', 'ยกเลิก ' + code(row)]]);
   }
   const { summary } = JSON.parse(row.draft_json);
-  const lines = [
-    row.state === 'saving' ? 'กำลังตรวจผลการบันทึก ' + code(row) : 'ตรวจร่าง ' + code(row),
-    (summary.direction === 'income' ? 'รับ' : 'จ่าย') + ' · ' + summary.scope,
-    'ยอด ' + baht(summary.cents) + ' บาท', 'วันที่ ' + summary.date,
-    'บัญชี ' + summary.account, (summary.scope === 'บริษัท' ? 'รายการ ' : 'หมวด ') + summary.item,
-  ];
-  if (summary.project) lines.push('โครงการ ' + summary.project);
-  if (summary.vehicle) lines.push('ทะเบียน ' + summary.vehicle);
-  if (summary.lodging) lines.push('ที่พัก ' + summary.lodging);
-  if (summary.note) lines.push('หมายเหตุ ' + summary.note);
-  if (summary.personalCents !== undefined) lines.push('ยอดที่ต้องสำรองจ่าย ' + baht(summary.personalCents) + ' บาท');
+  const lines = [row.state === 'saving' ? 'กำลังตรวจผลการบันทึก ' + code(row) : 'ตรวจร่าง ' + code(row)];
+  if (summary.scope === 'ส่วนตัว' && summary.direction === 'expense') {
+    lines.push('รายจ่ายส่วนตัว', ...personalExpenseFields(summary));
+  } else {
+    lines.push((summary.direction === 'income' ? 'รับ' : 'จ่าย') + ' · ' + summary.scope,
+      'ยอด ' + baht(summary.cents) + ' บาท', 'วันที่ ' + summary.date,
+      'บัญชี ' + summary.account, (summary.scope === 'บริษัท' ? 'รายการ ' : 'หมวด ') + summary.item);
+    if (summary.project) lines.push('โครงการ ' + summary.project);
+    if (summary.vehicle) lines.push('ทะเบียน ' + summary.vehicle);
+    if (summary.lodging) lines.push('ที่พัก ' + summary.lodging);
+    if (summary.note) lines.push('หมายเหตุ ' + summary.note);
+    if (summary.personalCents !== undefined) lines.push('ยอดที่ต้องสำรองจ่าย ' + baht(summary.personalCents) + ' บาท');
+  }
   const buttons = [[row.state === 'saving' ? 'ตรวจผลอีกครั้ง' : 'ยืนยันบันทึก', 'ยืนยัน ' + code(row)]];
   if (row.state === 'ready') {
     if (row.entry_json) buttons.push(['แก้ไข', 'แก้ไข ' + code(row)]);

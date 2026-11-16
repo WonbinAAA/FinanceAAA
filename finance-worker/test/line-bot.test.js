@@ -20,9 +20,11 @@ async function harness(t) {
     { ...firstAccount, _row: 5, account_id: 'KTB', account_name: 'กรุงไทย', opening_balance: 0 },
     { ...firstAccount, _row: 6, account_id: 'CASH', account_name: 'เงินสด', opening_balance: 0 },
   );
-  seed.tables['หมวดหมู่'].rows.push({
-    ...seed.tables['หมวดหมู่'].rows[1], _row: 7, category_id: 'FOOD', category_name: 'อาหาร',
-  });
+  const expenseCategory = seed.tables['หมวดหมู่'].rows[1];
+  seed.tables['หมวดหมู่'].rows.push(
+    { ...expenseCategory, _row: 7, category_id: 'FOOD', category_name: 'อาหาร' },
+    { ...expenseCategory, _row: 8, category_id: 'DINNER', category_name: 'ข้าวเย็น' },
+  );
   await commitSnapshot(DB, await loadSnapshot(DB), seed, 'test-line-seed', 'seed', {});
   const replies = [];
   const downloads = [];
@@ -87,13 +89,13 @@ test('mode buttons accept a natural Thai expense with the default account and ke
   mockLineInput(h, input => {
     assert.equal(input.scope, 'ส่วนตัว');
     assert.ok(input.categories.some(category => category.id === 'FOOD'));
-    return { direction: 'expense', categoryId: 'FOOD', description: 'กินข้าวเย็น', dateMentioned: false, amount: '50000' };
+    return { direction: 'expense', categoryId: 'FOOD', description: 'ซื้อไก่ทอด', dateMentioned: false, amount: '50000' };
   });
   const menu = await h.send('เมนู');
   assert.deepEqual(menu.quickReply.items.map(item => item.action.label), ['ส่วนตัว', 'บริษัท']);
   await h.send(action(menu, 'ส่วนตัว'));
-  const draft = await h.send('กินข้าวเย็น 50 บาท');
-  assert.match(draft.text, /ยอด 50\.00 บาท[\s\S]*บัญชี กรุงไทย[\s\S]*หมวด อาหาร[\s\S]*กินข้าวเย็น/);
+  const draft = await h.send('ซื้อไก่ทอด 50 บาท');
+  assert.match(draft.text, /จำนวนเงิน 50\.00 บาท[\s\S]*บัญชีที่ใช้จ่าย กรุงไทย[\s\S]*ประเภทรายจ่าย อาหาร[\s\S]*รายละเอียด ซื้อไก่ทอด/);
   assert.equal((await h.lines()).length, 0);
   assert.match((await h.send('กินข้าวเย็น 50 บาท')).text, /เลือกส่วนตัวหรือบริษัท/);
   await h.send(action(draft));
@@ -101,10 +103,31 @@ test('mode buttons accept a natural Thai expense with the default account and ke
   assert.equal((await h.lines())[0].amount, 50);
 
   await h.send('ส่วนตัว');
-  const cash = await h.send('กินข้าวเย็น 50 บาท เงินสด');
-  assert.match(cash.text, /บัญชี เงินสด/);
+  const cash = await h.send('ซื้อไก่ทอด 50 บาท เงินสด');
+  assert.match(cash.text, /บัญชีที่ใช้จ่าย เงินสด/);
   await h.send(action(cash));
   assert.equal((await h.lines())[1].account_id, 'CASH');
+});
+
+test('personal expense uses the website field order and keeps the actual category separate from details', async t => {
+  const h = await harness(t);
+  mockLineInput(h, () => ({ direction: 'expense', categoryId: 'FOOD', description: 'ข้าวเย็นไก่ทอด' }));
+  await h.send('ส่วนตัว');
+  const draft = await h.send('ข้าวเย็นไก่ทอด 50 บาท');
+  assert.match(draft.text, /รายจ่ายส่วนตัว\nจำนวนเงิน 50\.00 บาท\nวันที่ \d{2}\/\d{2}\/\d{4}\nบัญชีที่ใช้จ่าย กรุงไทย\nประเภทรายจ่าย ข้าวเย็น\nรายละเอียด ไก่ทอด$/u);
+  assert.equal((await h.lines()).length, 0);
+  await h.send(action(draft));
+  const [saved] = await h.lines();
+  assert.equal(saved.category_id, 'DINNER');
+  assert.equal(saved.description, 'ไก่ทอด');
+
+  delete h.env.LINE_AI;
+  await h.send('ส่วนตัว');
+  const cash = await h.send('ข้าวเย็นไก่ทอด 2 ชิ้น 50 บาท เงินสด 2026-11-16');
+  assert.match(cash.text, /จำนวนเงิน 50\.00 บาท\nวันที่ 16\/11\/2026\nบัญชีที่ใช้จ่าย เงินสด\nประเภทรายจ่าย ข้าวเย็น\nรายละเอียด ไก่ทอด 2 ชิ้น$/u);
+  await h.send(action(cash, 'แก้ไข'));
+  const revised = await h.send('รายละเอียด=ไก่ทอดร้านเดิม');
+  assert.match(revised.text, /ประเภทรายจ่าย ข้าวเย็น\nรายละเอียด ไก่ทอดร้านเดิม$/u);
 });
 
 test('one mode choice works for an image, preserves the OCR amount during clarification, and protects the old confirm action', async t => {
@@ -116,11 +139,11 @@ test('one mode choice works for an image, preserves the OCR amount during clarif
   const scan = await h.send({ type: 'image', id: '12345' });
   assert.match(scan.text, /ร่างสลิป · ส่วนตัว[\s\S]*50\.00 บาท[\s\S]*กรุงไทย/);
   const draft = await h.send('จ่ายค่าอาหาร 2 กล่อง');
-  assert.match(draft.text, /ยอด 50\.00 บาท/);
+  assert.match(draft.text, /จำนวนเงิน 50\.00 บาท/);
   const edit = await h.send(action(draft, 'แก้ไข'));
   assert.match(edit.text, /พิมพ์ช่องที่ต้องการแก้/);
   const revised = await h.send('ยอด=49.75');
-  assert.match(revised.text, /ยอด 49\.75 บาท/);
+  assert.match(revised.text, /จำนวนเงิน 49\.75 บาท/);
   assert.match((await h.send(action(draft))).text, /รหัสร่างเปลี่ยน/);
   assert.equal((await h.lines()).length, 0);
   await h.send(action(revised));
@@ -176,7 +199,7 @@ test('personal draft has no ledger effect until its owner confirms and replays s
   await h.submit([draftEvent]);
   const reply = h.replies.at(-1);
   assert.match(reply.text, /85\.50/);
-  assert.match(reply.text, /2026-11-15/);
+  assert.match(reply.text, /15\/11\/2026/);
   assert.equal((await h.lines()).length, 0);
   assert.match((await h.send(action(reply), { type: 'user', userId: other })).text, /ไม่พบร่าง/);
   assert.equal((await h.lines()).length, 0);
