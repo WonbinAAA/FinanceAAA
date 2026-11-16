@@ -211,3 +211,14 @@ export async function listLineChoices(env, section) {
   return personalCategories(snapshot, section === 'รับ' ? 'INCOME' : 'EXPENSE')
     .map(category => category.category_name + ' (' + category.category_id + ')');
 }
+
+export async function lineInputChoices(env) {
+  const snapshot = await loadSnapshot(env.DB);
+  return {
+    accounts: accounts(snapshot).map(account => ({ id: account.account_id, name: account.account_name })),
+    categories: personalCategories(snapshot).map(category => ({
+      id: category.category_id, name: category.category_name,
+      direction: category.transaction_type === 'INCOME' ? 'income' : 'expense',
+    })),
+  };
+}

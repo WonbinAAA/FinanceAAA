@@ -14,7 +14,16 @@ const expense = 'จ่าย | 85.50 | ส่วนตัว | ' + bank + ' | �
 
 async function harness(t) {
   const DB = testDb();
-  await commitSnapshot(DB, await loadSnapshot(DB), fixture(), 'test-line-seed', 'seed', {});
+  const seed = fixture();
+  const firstAccount = seed.tables['บัญชี'].rows[0];
+  seed.tables['บัญชี'].rows.push(
+    { ...firstAccount, _row: 5, account_id: 'KTB', account_name: 'กรุงไทย', opening_balance: 0 },
+    { ...firstAccount, _row: 6, account_id: 'CASH', account_name: 'เงินสด', opening_balance: 0 },
+  );
+  seed.tables['หมวดหมู่'].rows.push({
+    ...seed.tables['หมวดหมู่'].rows[1], _row: 7, category_id: 'FOOD', category_name: 'อาหาร',
+  });
+  await commitSnapshot(DB, await loadSnapshot(DB), seed, 'test-line-seed', 'seed', {});
   const replies = [];
   const downloads = [];
   const env = {
@@ -64,6 +73,86 @@ async function harness(t) {
 
 const action = (reply, label = 'ยืนยันบันทึก') =>
   reply.quickReply.items.find(item => item.action.label === label).action.text;
+
+function mockLineInput(h, fields) {
+  h.env.LINE_AI = { async run(_model, request) {
+    const input = request.messages[1]?.content ? JSON.parse(request.messages[1].content) : null;
+    const response = fields(input);
+    return { choices: [{ message: { content: JSON.stringify(response) } }] };
+  } };
+}
+
+test('mode buttons accept a natural Thai expense with the default account and keep the ledger pending', async t => {
+  const h = await harness(t);
+  mockLineInput(h, input => {
+    assert.equal(input.scope, 'ส่วนตัว');
+    assert.ok(input.categories.some(category => category.id === 'FOOD'));
+    return { direction: 'expense', categoryId: 'FOOD', description: 'กินข้าวเย็น', dateMentioned: false, amount: '50000' };
+  });
+  const menu = await h.send('เมนู');
+  assert.deepEqual(menu.quickReply.items.map(item => item.action.label), ['ส่วนตัว', 'บริษัท']);
+  await h.send(action(menu, 'ส่วนตัว'));
+  const draft = await h.send('กินข้าวเย็น 50 บาท');
+  assert.match(draft.text, /ยอด 50\.00 บาท[\s\S]*บัญชี กรุงไทย[\s\S]*หมวด อาหาร[\s\S]*กินข้าวเย็น/);
+  assert.equal((await h.lines()).length, 0);
+  assert.match((await h.send('กินข้าวเย็น 50 บาท')).text, /เลือกส่วนตัวหรือบริษัท/);
+  await h.send(action(draft));
+  assert.equal((await h.lines())[0].account_id, 'KTB');
+  assert.equal((await h.lines())[0].amount, 50);
+
+  await h.send('ส่วนตัว');
+  const cash = await h.send('กินข้าวเย็น 50 บาท เงินสด');
+  assert.match(cash.text, /บัญชี เงินสด/);
+  await h.send(action(cash));
+  assert.equal((await h.lines())[1].account_id, 'CASH');
+});
+
+test('one mode choice works for an image, preserves the OCR amount during clarification, and protects the old confirm action', async t => {
+  const h = await harness(t);
+  mockLineInput(h, input => input
+    ? { direction: 'expense', categoryId: 'FOOD', description: 'ค่าอาหาร', dateMentioned: false }
+    : { completed: true, amount: '50', date: '2026-11-16' });
+  await h.send('ส่วนตัว');
+  const scan = await h.send({ type: 'image', id: '12345' });
+  assert.match(scan.text, /ร่างสลิป · ส่วนตัว[\s\S]*50\.00 บาท[\s\S]*กรุงไทย/);
+  const draft = await h.send('จ่ายค่าอาหาร 2 กล่อง');
+  assert.match(draft.text, /ยอด 50\.00 บาท/);
+  const edit = await h.send(action(draft, 'แก้ไข'));
+  assert.match(edit.text, /พิมพ์ช่องที่ต้องการแก้/);
+  const revised = await h.send('ยอด=49.75');
+  assert.match(revised.text, /ยอด 49\.75 บาท/);
+  assert.match((await h.send(action(draft))).text, /รหัสร่างเปลี่ยน/);
+  assert.equal((await h.lines()).length, 0);
+  await h.send(action(revised));
+  assert.equal((await h.lines())[0].amount, 49.75);
+});
+
+test('guided input asks for unresolved details and late menu redelivery cannot replace a company choice', async t => {
+  const h = await harness(t);
+  let captured;
+  h.env.COMPANY_LEDGER = { async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path.endsWith('/finance/options')) return Response.json({ enabled: true, accounts: [{ account_id: 'KTB', account_name: 'กรุงไทย' }] });
+    assert.match(path, /finance\/preview$/);
+    captured = await request.json();
+    return Response.json({ entries: [{ id: captured.id, personal_cents: 2500 }] });
+  } };
+  mockLineInput(h, input => ({
+    direction: 'expense', description: 'ซื้ออุปกรณ์', categoryId: 'FOOD', accountMention: 'บัญชีอื่น',
+  }));
+  const stale = h.event('ส่วนตัว');
+  await h.submit([stale]);
+  await h.send('บริษัท');
+  await h.submit([stale]);
+  let reply = await h.send('ซื้ออุปกรณ์ 125 บาท บัญชีอื่น');
+  assert.match(reply.text, /ร่าง · บริษัท[\s\S]*กรุณาเลือกบัญชี/);
+  assert.equal(captured, undefined);
+  reply = await h.send(action(reply, 'กรุงไทย'));
+  assert.match(reply.text, /จ่าย · บริษัท[\s\S]*ยอดที่ต้องสำรองจ่าย 25\.00 บาท/);
+  assert.equal(captured.finance.accountId, 'KTB');
+  assert.equal(captured.itemBase, 'ซื้ออุปกรณ์');
+  assert.equal((await h.lines()).length, 0);
+});
 
 test('webhook verifies exact signed bytes before reading any LINE message', async t => {
   const h = await harness(t);
