@@ -24,6 +24,7 @@ async function harness(t) {
   t.mock.method(globalThis, 'fetch', async (input, options) => {
     const url = new URL(input);
     assert.equal(options.headers.Authorization, 'Bearer test-token');
+    assert.equal(options.redirect, 'manual');
     if (url.hostname === 'api-data.line.me') {
       downloads.push(url.pathname);
       return new Response(fakeImage);

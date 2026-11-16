@@ -245,11 +245,12 @@ async function handleEvent(env, event, owners) {
   } catch (error) {
     response = message(error instanceof AppError ? error.message : 'ระบบขัดข้องค่ะ กรุณาลองอีกครั้ง');
   }
-  await fetch('https://api.line.me/v2/bot/message/reply', {
+  const reply = await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.LINE_CHANNEL_ACCESS_TOKEN },
     body: JSON.stringify({ replyToken: event.replyToken, messages: [response] }),
-    signal: AbortSignal.timeout(5000), redirect: 'error',
+    signal: AbortSignal.timeout(5000), redirect: 'manual',
   });
+  if (!reply.ok) throw new Error('LINE did not accept the reply');
 }
 
 export async function lineWebhook(request, env, context) {

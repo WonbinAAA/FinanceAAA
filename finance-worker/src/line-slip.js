@@ -43,7 +43,7 @@ export async function downloadSlip(env, id) {
   try {
     const response = await fetch('https://api-data.line.me/v2/bot/message/' + id + '/content', {
       headers: { Authorization: 'Bearer ' + env.LINE_CHANNEL_ACCESS_TOKEN },
-      signal: AbortSignal.timeout(6000), redirect: 'error',
+      signal: AbortSignal.timeout(6000), redirect: 'manual',
     });
     if (!response.ok) throw new Error('LINE content unavailable');
     bytes = await readLimitedBody(response, imageLimit);
