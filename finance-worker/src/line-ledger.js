@@ -121,10 +121,18 @@ async function requireCompanyLink(env) {
   return options;
 }
 
-async function companyRefs(env) {
+export async function companyRefs(env) {
   const bootstrap = await companyApi(env, 'bootstrap');
   if (!Array.isArray(bootstrap?.refs)) throw new AppError('อ่านตัวเลือกของเว็บบริษัทไม่ได้ค่ะ', 503);
   return bootstrap.refs.filter(active);
+}
+
+export function companyItemFields({ direction, item }, refs = []) {
+  if (direction !== 'expense' || !item) return { vehicle: false, lodging: false };
+  const template = refs.find(ref => ref.kind === 'item' && ref.name === item && ref.direction === direction);
+  const vehicle = Boolean(template?.vehicle_required)
+    || /น้ำมัน|ดีเซล|เบนซิน|แก๊สรถ|ก๊าซรถ|^แก๊ส$|^ก๊าซ$/u.test(item);
+  return { vehicle, lodging: !vehicle && /^(?:ค่า)?(?:ที่พัก|โรงแรม)/u.test(item) };
 }
 
 function runPersonal(snapshot, body) {
@@ -167,11 +175,9 @@ export async function prepareLineDraft(env, data, draftId) {
   };
   if (data.project || data.vehicle || data.lodging) {
     const refs = await companyRefs(env);
-    const item = refs.find(ref => ref.kind === 'item' && ref.name === data.item && ref.direction === 'expense');
-    const usesVehicle = data.direction === 'expense' && (Boolean(item?.vehicle_required)
-      || /น้ำมัน|ดีเซล|เบนซิน|แก๊สรถ|ก๊าซรถ|^แก๊ส$|^ก๊าซ$/u.test(data.item));
-    if (data.vehicle && !usesVehicle) throw new AppError('รายการนี้ไม่มีช่องทะเบียนรถในเว็บบริษัทค่ะ');
-    if (data.lodging && (data.direction !== 'expense' || usesVehicle || !/^(?:ค่า)?(?:ที่พัก|โรงแรม)/u.test(data.item)))
+    const fields = companyItemFields(data, refs);
+    if (data.vehicle && !fields.vehicle) throw new AppError('รายการนี้ไม่มีช่องทะเบียนรถในเว็บบริษัทค่ะ');
+    if (data.lodging && !fields.lodging)
       throw new AppError('รายการนี้ไม่มีช่องชื่อที่พักในเว็บบริษัทค่ะ');
     if (data.project) {
       const project = choice(refs.filter(ref => ref.kind === 'project'), data.project, 'id', 'name', 'โครงการ');
@@ -253,9 +259,25 @@ export async function lineInputChoices(env) {
   const snapshot = await loadSnapshot(env.DB);
   return {
     accounts: accounts(snapshot).map(account => ({ id: account.account_id, name: account.account_name })),
-    categories: personalCategories(snapshot).map(category => ({
+    categories: personalCategories(snapshot).sort((a, b) => Number(a.sort_order) - Number(b.sort_order)).map(category => ({
       id: category.category_id, name: category.category_name,
       direction: category.transaction_type === 'INCOME' ? 'income' : 'expense',
     })),
   };
+}
+
+export async function lineEditChoices(env, entry, field) {
+  if (entry.scope === 'ส่วนตัว') {
+    const { accounts, categories } = await lineInputChoices(env);
+    return { options: field === 'account' ? accounts : categories.filter(category => category.direction === entry.direction) };
+  }
+  if (field === 'account') {
+    const { accounts } = await requireCompanyLink(env);
+    if (!Array.isArray(accounts)) throw new AppError('ยังอ่านบัญชีของเว็บบริษัทไม่ได้ค่ะ', 503);
+    return { options: accounts.map(account => ({ id: account.account_id, name: account.account_name })) };
+  }
+  const refs = await companyRefs(env);
+  const options = refs.filter(ref => ref.kind === field && (field !== 'item' || ref.direction === entry.direction
+    && (ref.direction !== 'expense' || !/^เบี้ยเลี้ยง/u.test(ref.name))));
+  return { options, refs };
 }

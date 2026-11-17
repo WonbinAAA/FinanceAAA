@@ -1,9 +1,11 @@
 import { AppError, json } from './errors.js';
 import { sha256 } from './auth.js';
-import { baht, lineInputChoices, listLineChoices, parseAmount, parseDate, prepareLineDraft, readLineDailyTotals, saveLineDraft } from './line-ledger.js';
+import { baht, companyItemFields, companyRefs, lineEditChoices, lineInputChoices, listLineChoices, parseAmount, parseDate,
+  prepareLineDraft, readLineDailyTotals, saveLineDraft } from './line-ledger.js';
 import { downloadSlip, readLimitedBody, readSlip } from './line-slip.js';
-import { defaultLineAccount, initialLineInput, missingLineInput, readLineInput } from './line-input.js';
-import { dailySummaryCard, draftCard, editPromptCard, isPersonalExpense, parseDraftCardAction, personalExpenseFields, savedCard } from './line-card.js';
+import { defaultLineAccount, initialLineInput, missingLineInput, readExplicitLineInput, readLineInput, setLineInputField } from './line-input.js';
+import { cardButton, dailySummaryCard, draftCard, isPersonalExpense, messageCard, parseDraftCardAction, personalExpenseFields, savedCard } from './line-card.js';
+import { editChoicesCard, editDateCard, editFields, editFieldsCard, editInputCard, isEditChoiceField, parseLineEditAction } from './line-edit.js';
 
 const thaiDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Bangkok' });
 const draftAge = 24 * 60 * 60 * 1000;
@@ -16,16 +18,12 @@ const dailySummaryCommand = 'สรุปยอดวันนี้';
 
 const help = 'เลือกส่วนตัวหรือบริษัทสำหรับรายการถัดไป แล้วพิมพ์สั้น ๆ เช่น “กินข้าวเย็น 50 บาท” หรือส่งรูปสลิปค่ะ\n'
   + 'บัญชีเริ่มต้น ' + defaultLineAccount + ' ถ้าใช้บัญชีอื่น ระบุชื่อในข้อความหรือแก้ในร่างได้ค่ะ';
-const scopeMenu = () => message(help, [...scopes.map(scope => [scope, scope]), ['📊 ' + dailySummaryCommand, dailySummaryCommand]]);
+const scopeMenu = () => message('เลือกเมนูค่ะ\n' + help,
+  [...scopes.map(scope => [scope, scope]), ['📊 ' + dailySummaryCommand, dailySummaryCommand]]);
 const eventOrder = event => String(event.timestamp).padStart(15, '0') + ':' + event.webhookEventId;
 
-const message = (text, buttons) => withQuickReplies({ type: 'text', text }, buttons);
-
-function withQuickReplies(response, buttons = []) {
-  if (buttons.length) response.quickReply = {
-    items: buttons.map(([label, text]) => ({ type: 'action', action: { type: 'message', label, text } })),
-  };
-  return response;
+function message(text, buttons = []) {
+  return messageCard(text, buttons.map(([label, value]) => cardButton(label, { type: 'message', text: value })));
 }
 
 function parseEntry(parts, scan) {
@@ -64,17 +62,26 @@ function code(row) {
   return row.id + (row.version ? '-' + row.version : '');
 }
 
-function editExamples(entry) {
-  const expense = isPersonalExpense(entry);
-  const examples = [
-    [expense ? 'จำนวนเงิน' : 'ยอด', '50'],
-    ['วันที่', entry.date],
-    [expense ? 'บัญชีที่ใช้จ่าย' : 'บัญชี', 'กรุงไทย'],
-  ];
-  if (expense) return [...examples, ['ประเภทรายจ่าย', 'ข้าวเย็น'], ['รายละเอียด', 'ไก่ทอด']];
-  if (entry.scope === 'ส่วนตัว') return [...examples, ['หมวด', entry.item], ['รายละเอียด', 'เงินเดือน']];
-  return [...examples, ['รายการ', entry.item], ['หมายเหตุ', 'ค่าจัดส่ง'],
-    ['โครงการ', 'ชื่อโครงการ'], ['ทะเบียน', 'ทะเบียนรถ'], ['ที่พัก', 'ชื่อที่พัก']];
+function draftEditEntry(row) {
+  if (row.entry_json) return JSON.parse(row.entry_json);
+  const { body, summary } = JSON.parse(row.draft_json);
+  const company = summary.scope === 'บริษัท';
+  return {
+    scope: summary.scope, direction: summary.direction, cents: summary.cents, date: summary.date, note: summary.note,
+    account: company ? body.finance.accountId : body.account_id,
+    item: company ? body.itemBase : body.category_id, fromImage: Boolean(row.scan_json),
+    ...(company ? { project: body.projectId, vehicle: body.vehicleId, lodging: body.lodgingName } : {}),
+  };
+}
+
+function editingCard(row, entry, fields, issue) {
+  const selected = fields.find(([key]) => key === entry.editField);
+  return selected ? editInputCard(code(row), ...selected, issue) : editFieldsCard(code(row), fields, issue);
+}
+
+async function currentEditFields(env, entry) {
+  const refs = entry.scope === 'บริษัท' ? await companyRefs(env).catch(() => []) : [];
+  return editFields(entry, refs);
 }
 
 function guidedMessage(row, options = {}, issue = '') {
@@ -128,7 +135,10 @@ function draftMessage(row) {
   if (row.state === 'cancelled') return message('ยกเลิกร่าง ' + row.id + ' แล้วค่ะ');
   if (row.state === 'saved') return savedCard(JSON.parse(row.result_json));
   if (row.state === 'details') {
-    if (row.entry_json) return guidedMessage(row);
+    if (row.entry_json) {
+      const entry = JSON.parse(row.entry_json);
+      return Object.hasOwn(entry, 'editField') ? editingCard(row, entry, editFields(entry)) : guidedMessage(row);
+    }
     if (!row.scan_json) return message('กำลังอ่านสลิป ' + row.id + ' ค่ะ พิมพ์ “ร่าง” เพื่อตรวจอีกครั้ง');
     const scan = JSON.parse(row.scan_json);
     const example = 'สลิป ' + row.id + ' | จ่าย | ' + (scan.cents ? '-' : '[กรอกยอด]')
@@ -139,7 +149,7 @@ function draftMessage(row) {
     [['ยกเลิก', 'ยกเลิก ' + code(row)]]);
   }
   const { summary } = JSON.parse(row.draft_json);
-  return draftCard(summary, code(row), row.state, Boolean(row.entry_json));
+  return draftCard(summary, code(row), row.state, true);
 }
 
 async function draftId(owner, event) {
@@ -168,27 +178,53 @@ async function bindInputDraft(db, owner, session, id) {
   return result.meta.changes > 0;
 }
 
-async function updateGuidedDraft(env, owner, row, text, event) {
+async function updateGuidedDraft(env, owner, row, input, event, companyDirectory) {
   const order = eventOrder(event);
   if (row.state !== 'details' || !row.entry_json || row.details_order && order <= row.details_order)
     return draftMessage(row);
-  const choices = await lineInputChoices(env);
   const before = JSON.parse(row.entry_json);
-  const entry = text === 'ตรวจร่าง' ? before : await readLineInput(env, before, text, event.timestamp, choices);
+  const editing = Object.hasOwn(before, 'editField');
+  const choices = editing ? undefined : await lineInputChoices(env);
+  let entry;
+  if (typeof input !== 'string') entry = input;
+  else if (input === 'ตรวจร่าง') entry = { ...before };
+  else if (editing) {
+    try {
+      entry = readExplicitLineInput(before, input, before.editField)
+        ?? (before.editField ? setLineInputField(before, before.editField, input) : null);
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return editingCard(row, before, await currentEditFields(env, before), error.message);
+    }
+    if (!entry) return editFieldsCard(code(row), await currentEditFields(env, before));
+  } else {
+    entry = await readLineInput(env, before, input, event.timestamp, choices);
+  }
+
   let draft = null;
   let issue = '';
+  if (editing && entry.scope === 'บริษัท' && (before.item !== entry.item || before.direction !== entry.direction)) {
+    companyDirectory ??= await companyRefs(env);
+    const applicable = companyItemFields(entry, companyDirectory);
+    if (!applicable.vehicle) delete entry.vehicle;
+    if (!applicable.lodging) delete entry.lodging;
+  }
   if (!missingLineInput(entry)) {
     try { draft = await prepareLineDraft(env, entry, row.id); }
     catch (error) {
       issue = error instanceof AppError ? error.message : 'ยังตรวจร่างไม่ได้ค่ะ ลองกดตรวจร่างอีกครั้ง';
     }
   }
+  if (draft) delete entry.editField;
+  else if (editing) entry.editField = null;
   const update = await env.DB.prepare('UPDATE line_drafts SET state=?,version=version+1,entry_json=?,draft_json=?,details_order=? '
     + "WHERE id=? AND owner_hash=? AND state='details' AND version=?")
     .bind(draft ? 'ready' : 'details', JSON.stringify(entry), draft ? JSON.stringify(draft) : null,
       order, row.id, owner, row.version).run();
   const current = await getDraft(env.DB, owner, row.id);
   if (!update.meta.changes || current.state !== 'details') return draftMessage(current);
+  if (editing) return editFieldsCard(code(current), companyDirectory ? editFields(entry, companyDirectory)
+    : await currentEditFields(env, entry), issue);
   if (!issue && !missingLineInput(entry)) issue = 'กรุณาตรวจข้อมูลร่างอีกครั้งค่ะ';
   return guidedMessage(current, choices, issue);
 }
@@ -218,22 +254,66 @@ async function guidedText(env, owner, input, event, now) {
 }
 
 async function editGuidedDraft(env, owner, row, version, event) {
-  if (!row?.entry_json || row.state !== 'ready' || row.version !== version) return draftMessage(row);
+  if (row?.state !== 'ready' || row.version !== version) return draftMessage(row);
+  const entry = { ...draftEditEntry(row), editField: null };
   const order = eventOrder(event);
-  const updated = await env.DB.prepare("UPDATE line_drafts SET state='details',version=version+1,draft_json=NULL,details_order=? "
+  const updated = await env.DB.prepare("UPDATE line_drafts SET state='details',version=version+1,draft_json=NULL,entry_json=?,details_order=? "
     + "WHERE id=? AND owner_hash=? AND version=? AND state='ready'")
-    .bind(order, row.id, owner, version).run();
+    .bind(JSON.stringify(entry), order, row.id, owner, version).run();
   if (updated.meta.changes) {
-    const entry = JSON.parse(row.entry_json);
     await selectInputScope(env.DB, owner, entry.scope, event, row.id);
-    const reference = row.id + '-' + (version + 1);
-    return withQuickReplies(editPromptCard(), [
-      ...editExamples(entry).map(([label]) => [label, 'แก้ช่อง ' + reference + ' | ' + label]),
-      ['ตรวจร่าง', 'เติม ' + reference + ' | ตรวจร่าง'],
-      ['ยกเลิก', 'ยกเลิก ' + reference],
-    ]);
+    return editFieldsCard(row.id + '-' + (version + 1), await currentEditFields(env, entry));
   }
   return draftMessage(await getDraft(env.DB, owner, row.id));
+}
+
+async function setEditFocus(env, owner, row, entry, field, event, fields) {
+  const order = eventOrder(event);
+  const updated = { ...entry, editField: field };
+  const update = await env.DB.prepare('UPDATE line_drafts SET version=version+1,entry_json=?,details_order=? '
+    + "WHERE id=? AND owner_hash=? AND version=? AND state='details'")
+    .bind(JSON.stringify(updated), order, row.id, owner, row.version).run();
+  if (update.meta.changes) {
+    await selectInputScope(env.DB, owner, entry.scope, event, row.id);
+    return editingCard({ ...row, version: row.version + 1 }, updated, fields);
+  }
+  return draftMessage(await getDraft(env.DB, owner, row.id));
+}
+
+async function editMenuAction(env, owner, action, event, oldLabel) {
+  const { id, version, step, value } = action;
+  const row = await getDraft(env.DB, owner, id);
+  if (row?.state !== 'details' || !row.entry_json || row.version !== version
+    || row.details_order && eventOrder(event) <= row.details_order) return draftMessage(row);
+  const entry = JSON.parse(row.entry_json);
+  if (!Object.hasOwn(entry, 'editField') && !oldLabel) return draftMessage(row);
+  const fields = step === 'back' || action.field === 'vehicle' || action.field === 'lodging' || oldLabel
+    ? await currentEditFields(env, entry) : editFields(entry);
+  if (!Object.hasOwn(entry, 'editField')) return setEditFocus(env, owner, row, entry, null, event, fields);
+  if (step === 'back') return setEditFocus(env, owner, row, entry, null, event, fields);
+  const field = oldLabel ? fields.find(([, label]) => label === oldLabel)?.[0] : action.field;
+  const label = fields.find(([key]) => key === field)?.[1];
+  if (!label) return editingCard(row, entry, fields);
+  const hasChoices = isEditChoiceField(field);
+  if ((step === 'field' || step === 'type') && !hasChoices
+    || step === 'type' && field === 'item' && entry.scope === 'บริษัท') {
+    if (field === 'date' && step === 'field') return editDateCard(code(row));
+    return setEditFocus(env, owner, row, entry, field, event, fields);
+  }
+  if (step === 'set' && field === 'date' && ['today', 'yesterday'].includes(value)) {
+    const date = thaiDate.format(event.timestamp - (value === 'yesterday' ? 24 * 60 * 60 * 1000 : 0));
+    return updateGuidedDraft(env, owner, row, { ...entry, date }, event);
+  }
+  if (!hasChoices || !['field', 'set'].includes(step)) return editingCard(row, entry, fields);
+  const { options, refs } = await lineEditChoices(env, entry, field);
+  if (step === 'field') {
+    const page = /^[0-9]{1,6}$/u.test(value ?? '') ? Number(value) : 0;
+    return editChoicesCard(code(row), field, label, options, page);
+  }
+  const selected = options.find(option => String(option.id) === value);
+  if (!selected) return editChoicesCard(code(row), field, label, options, 0, 'ตัวเลือกนี้เปลี่ยนแล้วค่ะ กรุณาเลือกใหม่');
+  const updated = { ...entry, [field]: field === 'item' && entry.scope === 'บริษัท' ? selected.name : String(selected.id) };
+  return updateGuidedDraft(env, owner, row, updated, event, refs);
 }
 
 async function receiveImage(env, owner, id, event, now) {
@@ -360,15 +440,8 @@ async function textCommand(env, owner, event, now) {
     if (verb === 'สลิป' && !version && parts.length > 1) return fillSlip(env, owner, id, parts.slice(1), event);
     if (['ยืนยัน', 'ยกเลิก'].includes(verb) && parts.length === 1) return actOnDraft(env, owner, id, Number(version || 0), verb, now);
     if (verb === 'แก้ไข' && parts.length === 1) return editGuidedDraft(env, owner, await getDraft(env.DB, owner, id), Number(version || 0), event);
-    if (verb === 'แก้ช่อง' && parts.length === 2) {
-      const row = await getDraft(env.DB, owner, id);
-      if (row?.state !== 'details' || !row.entry_json || row.version !== Number(version)) return draftMessage(row);
-      const entry = JSON.parse(row.entry_json);
-      const example = editExamples(entry).find(([label]) => label === parts[1]);
-      if (!example) return draftMessage(row);
-      await selectInputScope(env.DB, owner, entry.scope, event, row.id);
-      return message('พิมพ์ค่าที่ต้องการแก้ เช่น ' + example.join('=') + ' ค่ะ');
-    }
+    if (verb === 'แก้ช่อง' && parts.length === 2)
+      return editMenuAction(env, owner, { id, version: Number(version), step: 'field' }, event, parts[1]);
     if (verb === 'เติม' && parts.length === 2) {
       const row = await getDraft(env.DB, owner, id);
       if (row?.version === Number(version || 0)) return updateGuidedDraft(env, owner, row, parts[1], event);
@@ -395,7 +468,9 @@ async function textCommand(env, owner, event, now) {
   if (Object.hasOwn(directions, first) && parts.length > 1) return newEntry(env, owner, await draftId(owner, event), parts, now);
   if (scopes.includes(input)) {
     await selectInputScope(env.DB, owner, input, event);
-    return message('เลือก' + input + 'สำหรับรายการถัดไปแล้วค่ะ พิมพ์ข้อความหรือส่งรูปสลิปได้เลย');
+    const personal = input === 'ส่วนตัว';
+    return messageCard((personal ? '👤 ' : '🏢 ') + 'เลือก' + input + 'แล้วค่ะ\nพิมพ์รายการหรือส่งรูปสลิปได้เลยค่ะ',
+      [], { backgroundColor: personal ? '#ECF7F2' : '#EFF5F8' });
   }
   if (['เมนู', 'ช่วยเหลือ', ''].includes(input)) return scopeMenu();
   return guidedText(env, owner, input, event, now);
@@ -405,7 +480,8 @@ async function handleEvent(env, event, owners) {
   if (!['message', 'postback'].includes(event.type) || event.source?.type !== 'user' || !owners.has(event.source.userId)
     || !/^[A-Za-z0-9_-]{1,128}$/.test(event.replyToken ?? '')
     || !/^[A-Za-z0-9_-]{1,100}$/.test(event.webhookEventId ?? '') || !Number.isSafeInteger(event.timestamp)) return;
-  const cardAction = event.type === 'postback' ? parseDraftCardAction(event.postback?.data) : null;
+  const cardAction = event.type === 'postback'
+    ? parseDraftCardAction(event.postback?.data) ?? parseLineEditAction(event.postback?.data) : null;
   if (event.type === 'postback' && !cardAction) return;
   const owner = await sha256(event.source.userId);
   const now = Date.now();
@@ -413,7 +489,9 @@ async function handleEvent(env, event, owners) {
   try {
     await env.DB.prepare("UPDATE line_drafts SET state='expired',scan_json=NULL,draft_json=NULL,entry_json=NULL "
       + "WHERE state IN ('details','ready') AND created_at<=?").bind(now - draftAge).run();
-    if (cardAction) {
+    if (cardAction?.step) {
+      response = await editMenuAction(env, owner, cardAction, event);
+    } else if (cardAction) {
       const { action, id, version } = cardAction;
       response = action === 'edit'
         ? await editGuidedDraft(env, owner, await getDraft(env.DB, owner, id), version, event)

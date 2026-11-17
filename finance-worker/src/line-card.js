@@ -74,6 +74,38 @@ function fallbackText(lines) {
   return joined.length <= 400 ? joined : joined.slice(0, 399).replace(/[\uD800-\uDBFF]$/u, '') + '…';
 }
 
+export function cardButton(label, action) {
+  const actionLabel = label.length > 20 ? label.slice(0, 19).replace(/[\uD800-\uDBFF]$/u, '') + '…' : label;
+  return box('vertical', [text(label, { size: 'sm', color: colors.personal,
+    align: 'center', weight: 'bold' })], {
+    flex: 1, justifyContent: 'center', cornerRadius: '12px', paddingAll: 'lg',
+    backgroundColor: colors.confirm, action: { ...action, label: actionLabel },
+  });
+}
+
+export function messageCard(copy, buttons = [], { backgroundColor = colors.paper, groupFirstTwo = false } = {}) {
+  const [title, ...detail] = (copy.trim() || 'กรุณาลองอีกครั้งค่ะ').split('\n');
+  const [heading, ...overflow] = title.match(/[\s\S]{1,1000}/gu);
+  const body = [text(heading, { size: 'md', color: colors.text, weight: 'bold' })];
+  const remaining = [...overflow, ...detail].join('\n');
+  if (remaining) {
+    // Long lists on the old text commands remain readable in the card.
+    for (const block of remaining.match(/[\s\S]{1,1000}/gu)) body.push(text(block, { size: 'sm', color: colors.label }));
+  }
+  let rows = buttons;
+  if (groupFirstTwo && buttons.length >= 2) {
+    rows = [box('horizontal', buttons.slice(0, 2), { spacing: 'sm' }), ...buttons.slice(2)];
+  }
+  return {
+    type: 'flex', altText: fallbackText([title, ...detail]),
+    contents: {
+      type: 'bubble', size: 'mega',
+      body: box('vertical', body, { paddingAll: 'lg', spacing: 'sm', backgroundColor }),
+      ...(rows.length ? { footer: box('vertical', rows, { paddingAll: 'lg', spacing: 'sm' }) } : {}),
+    },
+  };
+}
+
 function shortCard(title, backgroundColor, detail) {
   const contents = [text(title, { size: 'md', color: colors.text, weight: 'bold' })];
   if (detail) contents.push(text(detail, { size: 'xs', color: colors.label, margin: 'sm' }));
@@ -88,8 +120,9 @@ export function savedCard(result) {
     result.pending ? 'ยอดบัญชีกำลังรออัปเดตค่ะ' : '');
 }
 
-export function editPromptCard() {
-  return shortCard('✏️ ต้องการแก้ไขส่วนไหนค่ะ', colors.edit);
+export function editPromptCard(buttons = [], issue = '') {
+  return messageCard('✏️ ต้องการแก้ไขส่วนไหนค่ะ' + (issue ? '\n' + issue : ''), buttons,
+    { backgroundColor: colors.edit, groupFirstTwo: true });
 }
 
 export function dailySummaryCard(date, totals) {
