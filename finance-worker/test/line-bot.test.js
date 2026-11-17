@@ -299,6 +299,85 @@ test('unreadable slips require the user to supply both amount and date before re
   assert.equal((await h.lines()).length, 0);
 });
 
+test('a matching payer bank and restaurant payment produce an editable dinner draft including the slip memo', async t => {
+  const h = await harness(t);
+  mockLineInput(h, input => {
+    assert.equal(input, null);
+    return { completed: true, amount: '60', date: '2026-11-17', time: '19:21',
+      payerName: 'นายพงศ์ ร***', payerType: 'person', payerBank: 'บัญชีธนาคารกรุงไทย',
+      payeeType: 'meal_merchant', payeeName: 'ร้านอาหารจำลอง', issuerBank: 'กรุงไทย', memo: 'ก๋วยเตี๋ยวรวม' };
+  });
+  await h.send('ส่วนตัว');
+  const image = { type: 'image', id: '2501' };
+  const draft = await h.send(image);
+  assert.match(replyText(draft), /รายจ่ายส่วนตัว\nจำนวนเงิน 60\.00 บาท\nวันที่ 17\/11\/2026\nบัญชีที่ใช้จ่าย กรุงไทย\nประเภทรายจ่าย ข้าวเย็น\nรายละเอียด ก๋วยเตี๋ยวรวม$/u);
+  const storedScan = h.DB.sqlite.prepare('SELECT scan_json FROM line_drafts').get().scan_json;
+  assert.doesNotMatch(storedScan, /นายพงศ์|ร้านอาหารจำลอง/u);
+  assert.equal(replyText(await h.send(image)), replyText(draft));
+  assert.equal((await h.lines()).length, 0);
+  assert.equal(replyText(await h.send(action(draft))), '✅ บันทึกรายการก๋วยเตี๋ยวรวมแล้วค่ะ');
+  const [saved] = await h.lines();
+  assert.equal(saved.transaction_type, 'EXPENSE');
+  assert.equal(saved.description, 'ก๋วยเตี๋ยวรวม');
+});
+
+test('a known recipient produces an income suggestion and keeps the memo when choosing a category', async t => {
+  const h = await harness(t);
+  const before = await loadSnapshot(h.DB);
+  const updated = structuredClone(before);
+  updated.tables['ผู้ใช้งาน'].rows[0].display_name = 'วีระ นามสมมติ';
+  await commitSnapshot(h.DB, before, updated, 'slip-owner', 'slip-owner', {});
+  mockLineInput(h, () => ({ completed: true, amount: '250.25', date: '2026-11-17',
+    payerName: 'นายสมใจ ส***', payeeName: 'นายวีระ น***', payerBank: 'กรุงไทย', payeeBank: 'กรุงไทย',
+    perspective: 'payer', memo: 'ค่าจ้างทำป้าย' }));
+  await h.send('ส่วนตัว');
+  const scan = await h.send({ type: 'image', id: '2502' });
+  assert.match(replyText(scan), /รายรับ · 250\.25 บาท · 2026-11-17 · กรุงไทย\nรายละเอียด ค่าจ้างทำป้าย/u);
+  assert.doesNotMatch(replyText(scan), /พิมพ์ว่ารับหรือจ่าย/u);
+  const draft = await h.send(action(scan, 'รายรับทั่วไป'));
+  assert.match(replyText(draft), /รับ · ส่วนตัว[\s\S]*หมายเหตุ ค่าจ้างทำป้าย/u);
+  assert.equal((await h.lines()).length, 0);
+});
+
+test('an ambiguous person-to-person receipt asks direction without losing the memo', async t => {
+  const h = await harness(t);
+  mockLineInput(h, () => ({ completed: true, amount: '40', date: '2026-11-17',
+    payerType: 'person', payeeType: 'person', issuerBank: 'กรุงไทย', payerBank: 'กรุงไทย',
+    payeeBank: 'กรุงไทย', memo: 'ก๋วยเตี๋ยวรวม' }));
+  await h.send('ส่วนตัว');
+  const scan = await h.send({ type: 'image', id: '2503' });
+  assert.match(replyText(scan), /รายละเอียด ก๋วยเตี๋ยวรวม[\s\S]*พิมพ์ว่ารับหรือจ่าย/u);
+  const withDirection = await h.send(action(scan, 'รายจ่าย'));
+  assert.match(replyText(withDirection), /รายจ่ายส่วนตัว[\s\S]*บัญชีที่ใช้จ่าย กรุงไทย[\s\S]*รายละเอียด ก๋วยเตี๋ยวรวม/u);
+  const draft = await h.send('ข้าวเย็น');
+  assert.match(replyText(draft), /ประเภทรายจ่าย ข้าวเย็น\nรายละเอียด ก๋วยเตี๋ยวรวม$/u);
+  assert.equal((await h.lines()).length, 0);
+});
+
+test('resending a pending receipt from the old reader fills its memo without replacing user-entered fields', async t => {
+  const h = await harness(t);
+  let upgraded = false;
+  mockLineInput(h, () => upgraded ? { completed: true, amount: '60', date: '2026-11-17', time: '19:21',
+    payerType: 'person', payeeType: 'meal_merchant', issuerBank: 'กรุงไทย', payerBank: 'กรุงไทย',
+    memo: 'ก๋วยเตี๋ยวรวม' } : { completed: true, amount: '61', date: '2026-11-16' });
+  await h.send('ส่วนตัว');
+  const image = { type: 'image', id: '2504' };
+  await h.send(image);
+  const receipt = h.DB.sqlite.prepare('SELECT id FROM line_drafts').get();
+  h.DB.sqlite.prepare('UPDATE line_drafts SET scan_json=? WHERE id=?')
+    .run(JSON.stringify({ cents: 6100, date: '2026-11-16' }), receipt.id);
+  await h.send('รายจ่าย');
+  await h.send('ยอด=62');
+  const oldDraft = await h.send('ข้าวเย็น');
+  assert.match(replyText(oldDraft), /รายละเอียด —$/u);
+  upgraded = true;
+  const draft = await h.send(image);
+  assert.match(replyText(draft), /จำนวนเงิน 62\.00 บาท\nวันที่ 16\/11\/2026[\s\S]*ข้าวเย็น\nรายละเอียด ก๋วยเตี๋ยวรวม/u);
+  assert.equal(h.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM line_drafts').get().n, 1);
+  assert.equal((await h.lines()).length, 0);
+  assert.match(replyText(await h.send(action(oldDraft))), /รหัสร่างเปลี่ยนแล้วค่ะ/);
+});
+
 test('company uses native entry preview and commit with a stable mutation ID after an uncertain response', async t => {
   const h = await harness(t);
   let companyRecord;

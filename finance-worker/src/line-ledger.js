@@ -257,12 +257,16 @@ export async function listLineChoices(env, section) {
 
 export async function lineInputChoices(env) {
   const snapshot = await loadSnapshot(env.DB);
+  const activeAccounts = accounts(snapshot);
+  const accountOwners = new Set(activeAccounts.map(account => account.user_id));
   return {
-    accounts: accounts(snapshot).map(account => ({ id: account.account_id, name: account.account_name })),
+    accounts: activeAccounts.map(account => ({ id: account.account_id, name: account.account_name })),
     categories: personalCategories(snapshot).sort((a, b) => Number(a.sort_order) - Number(b.sort_order)).map(category => ({
       id: category.category_id, name: category.category_name,
       direction: category.transaction_type === 'INCOME' ? 'income' : 'expense',
     })),
+    owners: snapshot.tables['ผู้ใช้งาน'].rows.filter(user => active(user) && accountOwners.has(user.user_id))
+      .map(user => user.display_name),
   };
 }
 

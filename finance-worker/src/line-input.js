@@ -1,6 +1,7 @@
 import { readLineJson } from './line-ai.js';
 import { AppError } from './errors.js';
 import { parseAmount, parseDate } from './line-ledger.js';
+import { slipBankName } from './line-slip.js';
 
 export const defaultLineAccount = 'กรุงไทย';
 const localDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Bangkok' });
@@ -16,9 +17,30 @@ const moneyNumber = /-?[0-9๐-๙][0-9๐-๙,.]*/gu;
 const currencyAmount = /(-?[0-9๐-๙][0-9๐-๙,.]*)\s*(?:บาท|บ\.)/gu;
 const directionLabel = { income: 'รายรับ', expense: 'รายจ่าย' };
 
-export function initialLineInput(scope, timestamp, scan = null) {
-  return { scope, direction: null, cents: scan?.cents ?? null, date: scan ? scan.date : localDate.format(timestamp),
-    account: defaultLineAccount, item: null, note: '', fromImage: Boolean(scan) };
+export function slipInputSuggestions(scope, scan, choices, direction = scan.direction) {
+  const bank = direction === 'expense' ? scan.payerBank : direction === 'income' ? scan.payeeBank : '';
+  const matches = bank ? choices.accounts.filter(account => slipBankName(account.name) === bank) : [];
+  const account = bank ? matches.length === 1 ? matches[0].name : null
+    : !direction && (scan.payerBank || scan.payeeBank) ? null : defaultLineAccount;
+  let item = null;
+  if (scope === 'ส่วนตัว' && direction === 'expense' && scan.meal) {
+    const hour = scan.time ? Number(scan.time.slice(0, 2)) : null;
+    const meal = hour === null || hour < 5 ? '' : hour < 11 ? 'ข้าวเช้า' : hour < 16 ? 'ข้าวเที่ยง' : 'ข้าวเย็น';
+    for (const label of [meal, 'อาหาร'].filter(Boolean)) {
+      const categories = choices.categories.filter(category => category.direction === 'expense' && normalize(category.name) === normalize(label));
+      if (categories.length === 1) {
+        item = categories[0].id;
+        break;
+      }
+    }
+  }
+  return { account, item };
+}
+
+export function initialLineInput(scope, timestamp, scan = null, choices) {
+  const { account, item } = scan ? slipInputSuggestions(scope, scan, choices) : { account: defaultLineAccount, item: null };
+  return { scope, direction: scan?.direction ?? null, cents: scan?.cents ?? null, date: scan ? scan.date : localDate.format(timestamp),
+    account, item, note: scan?.note || '', fromImage: Boolean(scan) };
 }
 
 function setDirection(entry, direction) {
@@ -155,13 +177,14 @@ export async function readLineInput(env, previous, text, timestamp, choices) {
     if (description) entry.item = description;
   } else if (entry.direction === 'expense' && expenseMatch) {
     entry.item = expenseMatch.category.id;
-    entry.note = expenseDetails(expenseMatch.rest, amount, accountMatches.length === 1 ? accountMatches[0] : null, entry.date);
+    const details = expenseDetails(expenseMatch.rest, amount, accountMatches.length === 1 ? accountMatches[0] : null, entry.date);
+    if (!entry.fromImage || !entry.note) entry.note = details;
   } else {
     const validCategories = categories.filter(category => category.direction === entry.direction);
     const category = validCategories.find(category => category.id === result?.categoryId)
       ?? validCategories.find(category => normalize(category.name) === normalize(text));
     if (category) entry.item = category.id;
-    if (description) entry.note = description;
+    if (description && (!entry.fromImage || !entry.note)) entry.note = description;
     else if (category && amount && !entry.note) entry.note = text.slice(0, 180);
   }
   return entry;

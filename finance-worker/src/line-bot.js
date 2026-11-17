@@ -3,7 +3,8 @@ import { sha256 } from './auth.js';
 import { baht, companyItemFields, companyRefs, lineEditChoices, lineInputChoices, listLineChoices, parseAmount, parseDate,
   prepareLineDraft, readLineDailyTotals, saveLineDraft } from './line-ledger.js';
 import { downloadSlip, readLimitedBody, readSlip } from './line-slip.js';
-import { defaultLineAccount, initialLineInput, missingLineInput, readExplicitLineInput, readLineInput, setLineInputField } from './line-input.js';
+import { defaultLineAccount, initialLineInput, missingLineInput, readExplicitLineInput, readLineInput, setLineInputField,
+  slipInputSuggestions } from './line-input.js';
 import { cardButton, dailySummaryCard, draftCard, isPersonalExpense, messageCard, parseDraftCardAction, personalExpenseFields, savedCard } from './line-card.js';
 import { editChoicesCard, editDateCard, editFields, editFieldsCard, editInputCard, isEditChoiceField, parseLineEditAction } from './line-edit.js';
 
@@ -32,7 +33,7 @@ function parseEntry(parts, scan) {
     throw new AppError('กรุณาระบุ รับ/จ่าย, ยอด, ส่วนตัว/บริษัท, บัญชี และหมวดหรือชื่อรายการค่ะ');
   }
   if (account.length > 200 || item.length > 200) throw new AppError('ชื่อบัญชีหรือรายการยาวเกิน 200 ตัวอักษรค่ะ');
-  const data = { direction: directions[command], scope, account, item, note: '', fromImage: !!scan };
+  const data = { direction: directions[command], scope, account, item, note: scan?.note || '', fromImage: !!scan };
   if (extras[0] && !extras[0].includes('=')) data.note = extras.shift();
   if (extras[0] === '') extras.shift();
   if (data.note.length > 2000) throw new AppError('หมายเหตุยาวเกิน 2,000 ตัวอักษรค่ะ');
@@ -94,12 +95,14 @@ function guidedMessage(row, options = {}, issue = '') {
   const personalExpense = isPersonalExpense(entry);
   const lines = ['ร่าง' + (entry.fromImage ? 'สลิป' : '') + ' · ' + entry.scope];
   if (personalExpense) {
+    if (entry.fromImage) lines.push('รายจ่ายส่วนตัว');
     lines.push(...personalExpenseFields({ ...entry, account, item }).map(([label, value]) => label + ' ' + value));
   } else {
     const overview = [entry.direction === 'income' ? 'รายรับ' : entry.direction === 'expense' ? 'รายจ่าย' : '',
       entry.cents ? baht(entry.cents) + ' บาท' : '', entry.date || '', account || ''].filter(Boolean).join(' · ');
     if (overview) lines.push(overview);
     if (item) lines.push(itemLabel + ' ' + item);
+    if (entry.fromImage && entry.note) lines.push((entry.scope === 'บริษัท' ? 'หมายเหตุ ' : 'รายละเอียด ') + entry.note);
   }
   const next = {
     direction: entry.fromImage ? 'พิมพ์ว่ารับหรือจ่ายค่าอะไร เช่น “จ่ายค่าอาหาร” ค่ะ' : 'รายการนี้เป็นรายรับหรือรายจ่ายคะ?',
@@ -141,11 +144,15 @@ function draftMessage(row) {
     }
     if (!row.scan_json) return message('กำลังอ่านสลิป ' + row.id + ' ค่ะ พิมพ์ “ร่าง” เพื่อตรวจอีกครั้ง');
     const scan = JSON.parse(row.scan_json);
+    const detectedDirection = scan.direction === 'expense' ? 'รายจ่าย' : scan.direction === 'income' ? 'รายรับ' : '';
     const example = 'สลิป ' + row.id + ' | จ่าย | ' + (scan.cents ? '-' : '[กรอกยอด]')
       + ' | ส่วนตัว | เงินสด | อาหาร' + (scan.date ? '' : ' | วันที่=YYYY-MM-DD');
     return message('สลิป ' + row.id + '\nยอดที่อ่านได้ ' + (scan.cents ? baht(scan.cents) + ' บาท' : 'กรุณากรอกยอด')
       + '\nวันที่ ' + (scan.date || 'กรุณากรอกวันที่')
-      + '\nเติมรายละเอียดตามตัวอย่างด้านล่าง เปลี่ยนยอดและวันที่ได้ก่อนยืนยันค่ะ\n' + example,
+      + (detectedDirection ? '\nประเภทที่อ่านได้ ' + detectedDirection : '')
+      + (scan.note ? '\nรายละเอียด ' + scan.note : '')
+      + (detectedDirection ? '\nเลือกส่วนตัวหรือบริษัท แล้วส่งสลิปเดิมเพื่อเตรียมร่างได้เลยค่ะ'
+        : '\nเติมรายละเอียดตามตัวอย่างด้านล่าง เปลี่ยนยอดและวันที่ได้ก่อนยืนยันค่ะ\n' + example),
     [['ยกเลิก', 'ยกเลิก ' + code(row)]]);
   }
   const { summary } = JSON.parse(row.draft_json);
@@ -178,6 +185,14 @@ async function bindInputDraft(db, owner, session, id) {
   return result.meta.changes > 0;
 }
 
+async function reviewLineEntry(env, entry, id) {
+  if (!entry || missingLineInput(entry)) return { draft: null, issue: '' };
+  try { return { draft: await prepareLineDraft(env, entry, id), issue: '' }; }
+  catch (error) {
+    return { draft: null, issue: error instanceof AppError ? error.message : 'ยังตรวจร่างไม่ได้ค่ะ ลองกดตรวจร่างอีกครั้ง' };
+  }
+}
+
 async function updateGuidedDraft(env, owner, row, input, event, companyDirectory) {
   const order = eventOrder(event);
   if (row.state !== 'details' || !row.entry_json || row.details_order && order <= row.details_order)
@@ -199,22 +214,20 @@ async function updateGuidedDraft(env, owner, row, input, event, companyDirectory
     if (!entry) return editFieldsCard(code(row), await currentEditFields(env, before));
   } else {
     entry = await readLineInput(env, before, input, event.timestamp, choices);
+    if (row.scan_json && !before.direction && entry.direction && /^(?:ราย)?(?:รับ|จ่าย)$/u.test(input)) {
+      const suggestions = slipInputSuggestions(entry.scope, JSON.parse(row.scan_json), choices, entry.direction);
+      entry.account ??= suggestions.account;
+      entry.item ??= suggestions.item;
+    }
   }
 
-  let draft = null;
-  let issue = '';
   if (editing && entry.scope === 'บริษัท' && (before.item !== entry.item || before.direction !== entry.direction)) {
     companyDirectory ??= await companyRefs(env);
     const applicable = companyItemFields(entry, companyDirectory);
     if (!applicable.vehicle) delete entry.vehicle;
     if (!applicable.lodging) delete entry.lodging;
   }
-  if (!missingLineInput(entry)) {
-    try { draft = await prepareLineDraft(env, entry, row.id); }
-    catch (error) {
-      issue = error instanceof AppError ? error.message : 'ยังตรวจร่างไม่ได้ค่ะ ลองกดตรวจร่างอีกครั้ง';
-    }
-  }
+  const { draft, issue } = await reviewLineEntry(env, entry, row.id);
   if (draft) delete entry.editField;
   else if (editing) entry.editField = null;
   const update = await env.DB.prepare('UPDATE line_drafts SET state=?,version=version+1,entry_json=?,draft_json=?,details_order=? '
@@ -225,8 +238,7 @@ async function updateGuidedDraft(env, owner, row, input, event, companyDirectory
   if (!update.meta.changes || current.state !== 'details') return draftMessage(current);
   if (editing) return editFieldsCard(code(current), companyDirectory ? editFields(entry, companyDirectory)
     : await currentEditFields(env, entry), issue);
-  if (!issue && !missingLineInput(entry)) issue = 'กรุณาตรวจข้อมูลร่างอีกครั้งค่ะ';
-  return guidedMessage(current, choices, issue);
+  return guidedMessage(current, choices, issue || (!missingLineInput(entry) ? 'กรุณาตรวจข้อมูลร่างอีกครั้งค่ะ' : ''));
 }
 
 async function guidedText(env, owner, input, event, now) {
@@ -316,33 +328,72 @@ async function editMenuAction(env, owner, action, event, oldLabel) {
   return updateGuidedDraft(env, owner, row, updated, event, refs);
 }
 
+function legacySlipScan(scan) {
+  return Boolean(scan && !Object.hasOwn(scan, 'direction'));
+}
+
+function canRefreshSlip(row, scan) {
+  return row.state === 'details' || row.state === 'ready' && legacySlipScan(scan);
+}
+
+function fillMissingSlipFields(before, proposed) {
+  const direction = before.direction ?? proposed.direction;
+  return {
+    ...before, direction, cents: before.cents ?? proposed.cents, date: before.date ?? proposed.date,
+    note: before.note || proposed.note,
+    account: before.account ?? (direction === proposed.direction ? proposed.account : null),
+    item: before.item ?? (direction === proposed.direction ? proposed.item : null),
+  };
+}
+
 async function receiveImage(env, owner, id, event, now) {
-  const existing = await getDraft(env.DB, owner, id);
-  if (existing && (existing.state !== 'details' || existing.scan_json || existing.lease_until > now)) {
-    return draftMessage(existing);
+  let row = await getDraft(env.DB, owner, id);
+  if (row) {
+    const scan = row.scan_json ? JSON.parse(row.scan_json) : null;
+    if (!canRefreshSlip(row, scan) || row.lease_until > now || scan && !legacySlipScan(scan)) return draftMessage(row);
   }
   const image = await downloadSlip(env, event.message.id);
   const session = await getInputSession(env.DB, owner, event, now);
-  if (!existing && session?.draft_id && session.draft_id !== id) {
+  if (!row && session?.draft_id && session.draft_id !== id) {
     const previous = await getDraft(env.DB, owner, session.draft_id);
-    return previous?.image_hash === image.hash ? draftMessage(previous) : scopeMenu();
+    if (previous?.image_hash !== image.hash) return scopeMenu();
+    row = previous;
   }
-  await env.DB.prepare("INSERT OR IGNORE INTO line_drafts(id,owner_hash,image_hash,state,created_at) VALUES(?,?,?,'details',?)")
-    .bind(id, owner, image.hash, now).run();
-  const row = await getDraft(env.DB, owner, id) ?? await env.DB.prepare(
-    "SELECT * FROM line_drafts WHERE owner_hash=? AND image_hash=? AND state IN ('details','ready','saving','saved')",
-  ).bind(owner, image.hash).first();
+  if (!row) {
+    await env.DB.prepare("INSERT OR IGNORE INTO line_drafts(id,owner_hash,image_hash,state,created_at) VALUES(?,?,?,'details',?)")
+      .bind(id, owner, image.hash, now).run();
+    row = await getDraft(env.DB, owner, id) ?? await env.DB.prepare(
+      "SELECT * FROM line_drafts WHERE owner_hash=? AND image_hash=? AND state IN ('details','ready','saving','saved')",
+    ).bind(owner, image.hash).first();
+  }
   if (!row) throw new AppError('สร้างร่างสลิปไม่สำเร็จค่ะ กรุณาส่งรูปใหม่');
-  const guided = row.id === id && session && await bindInputDraft(env.DB, owner, session, id);
+  const storedScan = row.scan_json ? JSON.parse(row.scan_json) : null;
+  if (!canRefreshSlip(row, storedScan) || row.lease_until > now) return draftMessage(row);
+  const before = row.state === 'ready' ? draftEditEntry(row) : row.entry_json ? JSON.parse(row.entry_json) : null;
+  const scanNeeded = !storedScan || legacySlipScan(storedScan);
+  if (before && (!scanNeeded || Object.hasOwn(before, 'editField'))) return draftMessage(row);
+  const guided = session && (!before || before.scope === session.scope) && await bindInputDraft(env.DB, owner, session, row.id);
+  if (!scanNeeded && !guided) return draftMessage(row);
   const claim = await env.DB.prepare(
-    "UPDATE line_drafts SET lease_until=? WHERE id=? AND state='details' AND scan_json IS NULL AND lease_until<=?",
-  ).bind(now + lease, row.id, now).run();
+    "UPDATE line_drafts SET lease_until=? WHERE id=? AND state=? AND scan_json IS ? AND version=? AND lease_until<=?",
+  ).bind(now + lease, row.id, row.state, row.scan_json, row.version, now).run();
   if (claim.meta.changes > 0) {
-    const scan = await readSlip(env, image);
-    const entry = guided ? initialLineInput(session.scope, event.timestamp, scan) : null;
-    await env.DB.prepare(
-      "UPDATE line_drafts SET scan_json=?,entry_json=?,details_order=?,lease_until=0 WHERE id=? AND state='details' AND lease_until=?",
-    ).bind(JSON.stringify(scan), entry ? JSON.stringify(entry) : null, entry ? eventOrder(event) : null, row.id, now + lease).run();
+    const choices = await lineInputChoices(env);
+    const scan = scanNeeded ? await readSlip(env, image, choices.owners) : storedScan;
+    scan.cents ??= storedScan?.cents ?? null;
+    scan.date ??= storedScan?.date ?? null;
+    const scope = before?.scope ?? (guided ? session.scope : null);
+    const proposed = scope ? initialLineInput(scope, event.timestamp, scan, choices) : null;
+    const entry = before ? fillMissingSlipFields(before, proposed) : proposed;
+    const { draft, issue } = await reviewLineEntry(env, entry, row.id);
+    const update = await env.DB.prepare(
+      "UPDATE line_drafts SET state=?,version=version+?,scan_json=?,entry_json=?,draft_json=?,details_order=?,lease_until=0 "
+      + 'WHERE id=? AND state=? AND lease_until=? AND version=?',
+    ).bind(draft ? 'ready' : 'details', draft || before ? 1 : 0, JSON.stringify(scan), entry ? JSON.stringify(entry) : null,
+      draft ? JSON.stringify(draft) : null, entry ? eventOrder(event) : null, row.id, row.state, now + lease, row.version).run();
+    const current = await getDraft(env.DB, owner, row.id);
+    if (update.meta.changes && current.state === 'details' && entry) return guidedMessage(current, choices, issue);
+    return draftMessage(current);
   }
   return draftMessage(await getDraft(env.DB, owner, row.id));
 }
