@@ -1,9 +1,9 @@
 import { AppError, json } from './errors.js';
 import { sha256 } from './auth.js';
-import { baht, lineInputChoices, listLineChoices, parseAmount, parseDate, prepareLineDraft, saveLineDraft } from './line-ledger.js';
+import { baht, lineInputChoices, listLineChoices, parseAmount, parseDate, prepareLineDraft, readLineDailyTotals, saveLineDraft } from './line-ledger.js';
 import { downloadSlip, readLimitedBody, readSlip } from './line-slip.js';
 import { defaultLineAccount, initialLineInput, missingLineInput, readLineInput } from './line-input.js';
-import { draftCard, isPersonalExpense, parseDraftCardAction, personalExpenseFields } from './line-card.js';
+import { dailySummaryCard, draftCard, editPromptCard, isPersonalExpense, parseDraftCardAction, personalExpenseFields, savedCard } from './line-card.js';
 
 const thaiDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Bangkok' });
 const draftAge = 24 * 60 * 60 * 1000;
@@ -12,14 +12,16 @@ const selectionAge = 30 * 60 * 1000;
 const directions = { รับ: 'income', จ่าย: 'expense' };
 const optionalFields = { วันที่: 'date', โครงการ: 'project', ทะเบียน: 'vehicle', ที่พัก: 'lodging' };
 const scopes = ['ส่วนตัว', 'บริษัท'];
+const dailySummaryCommand = 'สรุปยอดวันนี้';
 
 const help = 'เลือกส่วนตัวหรือบริษัทสำหรับรายการถัดไป แล้วพิมพ์สั้น ๆ เช่น “กินข้าวเย็น 50 บาท” หรือส่งรูปสลิปค่ะ\n'
   + 'บัญชีเริ่มต้น ' + defaultLineAccount + ' ถ้าใช้บัญชีอื่น ระบุชื่อในข้อความหรือแก้ในร่างได้ค่ะ';
-const scopeMenu = () => message(help, scopes.map(scope => [scope, scope]));
+const scopeMenu = () => message(help, [...scopes.map(scope => [scope, scope]), ['📊 ' + dailySummaryCommand, dailySummaryCommand]]);
 const eventOrder = event => String(event.timestamp).padStart(15, '0') + ':' + event.webhookEventId;
 
-function message(text, buttons = []) {
-  const response = { type: 'text', text };
+const message = (text, buttons) => withQuickReplies({ type: 'text', text }, buttons);
+
+function withQuickReplies(response, buttons = []) {
   if (buttons.length) response.quickReply = {
     items: buttons.map(([label, text]) => ({ type: 'action', action: { type: 'message', label, text } })),
   };
@@ -60,6 +62,19 @@ function getDraft(db, owner, id) {
 
 function code(row) {
   return row.id + (row.version ? '-' + row.version : '');
+}
+
+function editExamples(entry) {
+  const expense = isPersonalExpense(entry);
+  const examples = [
+    [expense ? 'จำนวนเงิน' : 'ยอด', '50'],
+    ['วันที่', entry.date],
+    [expense ? 'บัญชีที่ใช้จ่าย' : 'บัญชี', 'กรุงไทย'],
+  ];
+  if (expense) return [...examples, ['ประเภทรายจ่าย', 'ข้าวเย็น'], ['รายละเอียด', 'ไก่ทอด']];
+  if (entry.scope === 'ส่วนตัว') return [...examples, ['หมวด', entry.item], ['รายละเอียด', 'เงินเดือน']];
+  return [...examples, ['รายการ', entry.item], ['หมายเหตุ', 'ค่าจัดส่ง'],
+    ['โครงการ', 'ชื่อโครงการ'], ['ทะเบียน', 'ทะเบียนรถ'], ['ที่พัก', 'ชื่อที่พัก']];
 }
 
 function guidedMessage(row, options = {}, issue = '') {
@@ -111,11 +126,7 @@ function draftMessage(row) {
   if (!row) return message('ไม่พบร่างนี้ค่ะ พิมพ์ “ร่าง” เพื่อตรวจรายการอีกครั้ง');
   if (row.state === 'expired') return message('ร่าง ' + row.id + ' หมดอายุแล้วค่ะ ส่งข้อความหรือรูปใหม่ได้เลย');
   if (row.state === 'cancelled') return message('ยกเลิกร่าง ' + row.id + ' แล้วค่ะ');
-  if (row.state === 'saved') {
-    const result = JSON.parse(row.result_json);
-    return message('บันทึกแล้วค่ะ\nรหัสรายการ ' + result.id
-      + (result.pending ? '\nรายการอยู่ในสมุดบริษัท ยอดบัญชีกำลังรออัปเดตค่ะ' : ''));
-  }
+  if (row.state === 'saved') return savedCard(JSON.parse(row.result_json));
   if (row.state === 'details') {
     if (row.entry_json) return guidedMessage(row);
     if (!row.scan_json) return message('กำลังอ่านสลิป ' + row.id + ' ค่ะ พิมพ์ “ร่าง” เพื่อตรวจอีกครั้ง');
@@ -215,7 +226,12 @@ async function editGuidedDraft(env, owner, row, version, event) {
   if (updated.meta.changes) {
     const entry = JSON.parse(row.entry_json);
     await selectInputScope(env.DB, owner, entry.scope, event, row.id);
-    return guidedMessage(await getDraft(env.DB, owner, row.id), await lineInputChoices(env));
+    const reference = row.id + '-' + (version + 1);
+    return withQuickReplies(editPromptCard(), [
+      ...editExamples(entry).map(([label]) => [label, 'แก้ช่อง ' + reference + ' | ' + label]),
+      ['ตรวจร่าง', 'เติม ' + reference + ' | ตรวจร่าง'],
+      ['ยกเลิก', 'ยกเลิก ' + reference],
+    ]);
   }
   return draftMessage(await getDraft(env.DB, owner, row.id));
 }
@@ -301,7 +317,12 @@ async function actOnDraft(env, owner, id, version, action, now) {
   if (claimed.meta.changes === 0) return draftMessage(await getDraft(env.DB, owner, id));
 
   try {
-    const result = await saveLineDraft(env, id, version, JSON.parse(row.draft_json));
+    const draft = JSON.parse(row.draft_json);
+    const result = await saveLineDraft(env, id, version, draft);
+    const { scope, item, note } = draft.summary;
+    const name = (scope === 'ส่วนตัว' ? note?.trim() || item : item).replace(/\s+/gu, ' ').trim();
+    const glyphs = [...name];
+    result.saved_name = glyphs.length > 65 ? glyphs.slice(0, 64).join('') + '…' : name;
     await env.DB.prepare(
       "UPDATE line_drafts SET state='saved',result_json=?,draft_json=NULL,scan_json=NULL,entry_json=NULL,lease_until=0 "
       + "WHERE id=? AND state='saving' AND lease_until=?",
@@ -325,9 +346,13 @@ async function actOnDraft(env, owner, id, version, action, now) {
 async function textCommand(env, owner, event, now) {
   const input = event.message.text.trim();
   if (input.length > 3000) throw new AppError('ข้อความยาวเกิน 3,000 ตัวอักษรค่ะ');
+  if (input === dailySummaryCommand) {
+    const date = thaiDate.format(now);
+    return dailySummaryCard(date, await readLineDailyTotals(env, date));
+  }
   const parts = input.split('|').map(value => value.trim());
   const first = parts[0];
-  const command = first.match(/^(ยืนยัน|ยกเลิก|ร่าง|สลิป|แก้ไข|เติม)\s+(L[0-9A-F]{14})(?:-(\d{1,6}))?$/iu);
+  const command = first.match(/^(ยืนยัน|ยกเลิก|ร่าง|สลิป|แก้ไข|เติม|แก้ช่อง)\s+(L[0-9A-F]{14})(?:-(\d{1,6}))?$/iu);
   if (command) {
     const [, verb, rawId, version] = command;
     const id = rawId.toUpperCase();
@@ -335,6 +360,15 @@ async function textCommand(env, owner, event, now) {
     if (verb === 'สลิป' && !version && parts.length > 1) return fillSlip(env, owner, id, parts.slice(1), event);
     if (['ยืนยัน', 'ยกเลิก'].includes(verb) && parts.length === 1) return actOnDraft(env, owner, id, Number(version || 0), verb, now);
     if (verb === 'แก้ไข' && parts.length === 1) return editGuidedDraft(env, owner, await getDraft(env.DB, owner, id), Number(version || 0), event);
+    if (verb === 'แก้ช่อง' && parts.length === 2) {
+      const row = await getDraft(env.DB, owner, id);
+      if (row?.state !== 'details' || !row.entry_json || row.version !== Number(version)) return draftMessage(row);
+      const entry = JSON.parse(row.entry_json);
+      const example = editExamples(entry).find(([label]) => label === parts[1]);
+      if (!example) return draftMessage(row);
+      await selectInputScope(env.DB, owner, entry.scope, event, row.id);
+      return message('พิมพ์ค่าที่ต้องการแก้ เช่น ' + example.join('=') + ' ค่ะ');
+    }
     if (verb === 'เติม' && parts.length === 2) {
       const row = await getDraft(env.DB, owner, id);
       if (row?.version === Number(version || 0)) return updateGuidedDraft(env, owner, row, parts[1], event);

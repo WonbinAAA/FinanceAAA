@@ -1,5 +1,6 @@
 import { sha256 } from './auth.js';
 import { isCompanyCategory } from './company-policy.js';
+import { displayPersonalLedger } from './company-view.js';
 import { AppError } from './errors.js';
 import { createLegacyEngine } from './legacy-engine.js';
 import { moneyCents } from './schema.js';
@@ -56,7 +57,7 @@ function accounts(snapshot) {
   return snapshot.tables['บัญชี'].rows.filter(active);
 }
 
-async function companyApi(env, path, body) {
+async function companyApi(env, path, body, signal) {
   if (!env.COMPANY_LEDGER?.fetch) throw new AppError('ขณะนี้เชื่อมเว็บบริษัทไม่ได้ กรุณาลองอีกครั้งค่ะ', 503);
   let response, data;
   try {
@@ -64,6 +65,7 @@ async function companyApi(env, path, body) {
       method: body ? 'POST' : 'GET',
       headers: { Origin: companyOrigin, Accept: 'application/json', 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
+      signal,
     });
     response = await env.COMPANY_LEDGER.fetch(request);
     data = await response.json();
@@ -76,6 +78,41 @@ async function companyApi(env, path, body) {
     throw new AppError('ขณะนี้เว็บบริษัทไม่พร้อม กรุณาลองอีกครั้งค่ะ', 503);
   }
   return data;
+}
+
+function countDailyAmounts(rows) {
+  const totals = { income: 0, expense: 0 };
+  for (const { direction, cents } of rows) {
+    if (!Object.hasOwn(totals, direction) || !Number.isSafeInteger(cents) || cents < 0
+      || !Number.isSafeInteger(totals[direction] + cents)) throw new Error('Invalid daily ledger amounts');
+    totals[direction] += cents;
+  }
+  return totals;
+}
+
+async function personalDailyTotals(env, date) {
+  const [snapshot, links] = await Promise.all([
+    loadSnapshot(env.DB),
+    env.DB.prepare('SELECT transaction_id FROM company_link_groups').all(),
+  ]);
+  const rows = snapshot.tables['รายการเงิน'].rows.filter(row => row.status === 'ACTIVE'
+    && row.transaction_date === date && ['INCOME', 'EXPENSE'].includes(row.transaction_type));
+  return countDailyAmounts(displayPersonalLedger(rows, links.results, snapshot.tables['หมวดหมู่'].rows)
+    .map(row => ({ direction: row.transaction_type.toLowerCase(), cents: moneyCents(row.amount) })));
+}
+
+async function companyDailyTotals(env, date) {
+  const query = new URLSearchParams({ format: 'pdf-data', from: date, to: date });
+  const { rows } = await companyApi(env, 'export?' + query, undefined, AbortSignal.timeout(8000));
+  return countDailyAmounts(rows.filter(row => row.date === date)
+    .map(row => ({ direction: row.direction, cents: row.amount_cents })));
+}
+
+export async function readLineDailyTotals(env, date) {
+  const [personal, company] = await Promise.allSettled([
+    personalDailyTotals(env, date), companyDailyTotals(env, date),
+  ]);
+  return { personal: personal.value ?? null, company: company.value ?? null };
 }
 
 async function requireCompanyLink(env) {

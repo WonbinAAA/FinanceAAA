@@ -75,7 +75,7 @@ async function harness(t) {
 }
 
 const replyText = reply => reply.text ?? reply.altText;
-const action = (reply, label = 'ยืนยันบันทึก') => reply.type === 'flex'
+const action = (reply, label = 'ยืนยันบันทึก') => reply.contents?.footer
   ? reply.contents.footer.contents.find(item => item.action.label === label).action
   : reply.quickReply.items.find(item => item.action.label === label).action.text;
 
@@ -95,13 +95,15 @@ test('mode buttons accept a natural Thai expense with the default account and ke
     return { direction: 'expense', categoryId: 'FOOD', description: 'ซื้อไก่ทอด', dateMentioned: false, amount: '50000' };
   });
   const menu = await h.send('เมนู');
-  assert.deepEqual(menu.quickReply.items.map(item => item.action.label), ['ส่วนตัว', 'บริษัท']);
+  assert.deepEqual(menu.quickReply.items.map(item => item.action.label), ['ส่วนตัว', 'บริษัท', '📊 สรุปยอดวันนี้']);
   await h.send(action(menu, 'ส่วนตัว'));
   const draft = await h.send('ซื้อไก่ทอด 50 บาท');
   assert.match(replyText(draft), /จำนวนเงิน 50\.00 บาท[\s\S]*บัญชีที่ใช้จ่าย กรุงไทย[\s\S]*ประเภทรายจ่าย อาหาร[\s\S]*รายละเอียด ซื้อไก่ทอด/);
   assert.equal((await h.lines()).length, 0);
   assert.match((await h.send('กินข้าวเย็น 50 บาท')).text, /เลือกส่วนตัวหรือบริษัท/);
-  await h.send(action(draft));
+  const savedReply = await h.send(action(draft));
+  assert.equal(savedReply.type, 'flex');
+  assert.equal(replyText(savedReply), '✅ บันทึกรายการซื้อไก่ทอดแล้วค่ะ');
   assert.equal((await h.lines())[0].account_id, 'KTB');
   assert.equal((await h.lines())[0].amount, 50);
 
@@ -150,7 +152,9 @@ test('one mode choice works for an image, preserves the OCR amount during clarif
   const draft = await h.send('จ่ายค่าอาหาร 2 กล่อง');
   assert.match(replyText(draft), /จำนวนเงิน 50\.00 บาท/);
   const edit = await h.send(action(draft, 'แก้ไข'));
-  assert.match(edit.text, /พิมพ์ช่องที่ต้องการแก้/);
+  assert.equal(edit.type, 'flex');
+  assert.equal(replyText(edit), '✏️ ต้องการแก้ไขส่วนไหนค่ะ');
+  assert.match(replyText(await h.send(action(edit, 'จำนวนเงิน'))), /จำนวนเงิน=50/);
   const revised = await h.send('ยอด=49.75');
   assert.match(replyText(revised), /จำนวนเงิน 49\.75 บาท/);
   assert.match((await h.send(action(draft))).text, /รหัสร่างเปลี่ยน/);
@@ -218,9 +222,9 @@ test('personal draft has no ledger effect until its owner confirms and replays s
   assert.equal(saved.status, 'ACTIVE');
   assert.equal(saved.source_type, 'LINE');
   assert.equal(saved.amount, 85.5);
-  assert.match((await h.send(action(reply))).text, /บันทึกแล้ว/);
+  assert.equal(replyText(await h.send(action(reply))), '✅ บันทึกรายการข้าวเที่ยงแล้วค่ะ');
   await h.submit([draftEvent]);
-  assert.match(h.replies.at(-1).text, /บันทึกแล้ว/);
+  assert.equal(replyText(h.replies.at(-1)), '✅ บันทึกรายการข้าวเที่ยงแล้วค่ะ');
   const snapshot = await loadSnapshot(h.DB);
   assert.equal(snapshot.tables['ประวัติการแก้ไข'].rows.find(row => row.record_id === saved.transaction_id).change_source, 'LINE');
   assert.equal(h.DB.sqlite.prepare("SELECT draft_json FROM line_drafts WHERE state='saved'").get().draft_json, null);
@@ -265,10 +269,10 @@ test('OCR gives only proposed values, replays one image, and old buttons cannot 
   assert.match(replyText(h.replies.at(-1)), /124\.00 บาท/);
   assert.match((await h.send(action(initial))).text, /รหัสร่างเปลี่ยน/);
   assert.equal((await h.lines()).length, 0);
-  assert.match((await h.send(action(revised))).text, /บันทึกแล้ว/);
+  assert.match(replyText(await h.send(action(revised))), /บันทึกรายการ.+แล้วค่ะ/);
   assert.equal((await h.lines())[0].amount, 124);
   assert.equal((await h.lines())[0].ai_status, 'REVIEWED');
-  assert.match((await h.send(incoming)).text, /บันทึกแล้ว/);
+  assert.match(replyText(await h.send(incoming)), /บันทึกรายการ.+แล้วค่ะ/);
   assert.equal(scans, 1);
 });
 
@@ -315,7 +319,8 @@ test('company uses native entry preview and commit with a stable mutation ID aft
   assert.equal(writes, 0);
   assert.match((await h.send(action(draft))).text, /ยังตรวจผลไม่ได้/);
   h.DB.sqlite.exec("UPDATE line_drafts SET lease_until=0 WHERE state='saving'");
-  assert.match((await h.send(action(draft))).text, /ยอดบัญชีกำลังรออัปเดต/);
+  assert.equal(replyText(await h.send(action(draft))),
+    '✅ บันทึกรายการค่าวัสดุแล้วค่ะ\nยอดบัญชีกำลังรออัปเดตค่ะ');
   assert.equal(writes, 1);
   assert.equal((await h.lines()).length, 0);
 });
@@ -349,6 +354,49 @@ test('company shortfall conflict produces no Finance entry and can be reviewed a
   const newer = await h.send('จ่าย | 100 | บริษัท | ' + bank + ' | ค่าวัสดุ');
   assert.match(replyText(newer), /สำรองจ่าย 70\.00 บาท/);
   const incomeDraft = await h.send('รับ | 500 | บริษัท | ' + bank + ' | เงินโอนจากบริษัท');
-  assert.match((await h.send(action(incomeDraft))).text, /บันทึกแล้ว/);
+  assert.equal(replyText(await h.send(action(incomeDraft))), '✅ บันทึกรายการเงินโอนจากบริษัทแล้วค่ะ');
   assert.equal(writes, 2);
+});
+
+test('today in Bangkok totals both ledgers separately and keeps the active draft', async t => {
+  const h = await harness(t);
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-16T17:02:00Z'));
+  const date = '2026-11-17';
+  const stored = await loadSnapshot(h.DB);
+  const snapshot = structuredClone(stored);
+  const rows = snapshot.tables['รายการเงิน'].rows;
+  const add = (id, amount, details = {}) => rows.push({ _row: rows.length + 3,
+    transaction_id: id, user_id: 'USR001', account_id: 'ACC1', expense_owner: 'PERSONAL',
+    category_id: 'EX', transaction_date: date, transaction_type: 'EXPENSE', status: 'ACTIVE', amount, ...details });
+  add('income', 200.1, { transaction_type: 'INCOME', category_id: 'IN' });
+  add('expense', 50.25);
+  add('void', 3, { status: 'VOID' });
+  add('draft', 4, { status: 'DRAFT' });
+  add('other-day', 5, { transaction_date: '2026-11-16' });
+  add('transfer', 6, { transaction_type: 'TRANSFER' });
+  add('mirror', 7);
+  const link = h.DB.prepare("INSERT INTO company_link_groups VALUES('test-group','mirror','test-hash','{}')");
+  await commitSnapshot(h.DB, stored, snapshot, 'daily-rows', 'daily-rows', {}, [link]);
+  h.env.COMPANY_LEDGER = { async fetch(request) {
+    const url = new URL(request.url);
+    assert.equal(request.method, 'GET');
+    assert.equal(url.pathname + url.search, '/finance/api/export?format=pdf-data&from=' + date + '&to=' + date);
+    return Response.json({ rows: [
+      { date, direction: 'income', amount_cents: 2000 },
+      { date, direction: 'expense', amount_cents: 3109 },
+      { date: '2026-11-16', direction: 'expense', amount_cents: 711 },
+    ] });
+  } };
+  await h.send('ส่วนตัว');
+  const pending = await h.send('ข้าวเย็นไก่ทอด 50 บาท');
+  assert.equal(pending.type, 'flex');
+  const summary = await h.send(action(await h.send('เมนู'), '📊 สรุปยอดวันนี้'));
+  assert.equal(summary.type, 'flex');
+  assert.equal(replyText(summary),
+    '📊 สรุปยอดวันนี้ · 17/11/2026\n👤 ส่วนตัว\nรายรับวันนี้ 200.10 บาท\nรายจ่ายวันนี้ 50.25 บาท\nยอดสุทธิ 149.85 บาท'
+    + '\n🏢 บริษัท\nรายรับวันนี้ 20.00 บาท\nรายจ่ายวันนี้ 31.09 บาท\nยอดสุทธิ -11.09 บาท');
+  assert.equal(replyText(await h.send('ร่าง')), replyText(pending));
+  assert.equal((await h.lines()).length, 7);
+  delete h.env.COMPANY_LEDGER;
+  assert.match(replyText(await h.send('สรุปยอดวันนี้')), /ยอดสุทธิ 149\.85 บาท\n🏢 บริษัท\nยังอ่านยอดไม่ได้ค่ะ$/u);
 });

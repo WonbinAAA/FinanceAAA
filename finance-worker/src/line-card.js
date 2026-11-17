@@ -74,6 +74,67 @@ function fallbackText(lines) {
   return joined.length <= 400 ? joined : joined.slice(0, 399).replace(/[\uD800-\uDBFF]$/u, '') + '…';
 }
 
+function shortCard(title, backgroundColor, detail) {
+  const contents = [text(title, { size: 'md', color: colors.text, weight: 'bold' })];
+  if (detail) contents.push(text(detail, { size: 'xs', color: colors.label, margin: 'sm' }));
+  return {
+    type: 'flex', altText: fallbackText(detail ? [title, detail] : [title]),
+    contents: { type: 'bubble', body: box('vertical', contents, { paddingAll: 'lg', backgroundColor }) },
+  };
+}
+
+export function savedCard(result) {
+  return shortCard('✅ บันทึกรายการ' + (result.saved_name || '') + 'แล้วค่ะ', colors.confirm,
+    result.pending ? 'ยอดบัญชีกำลังรออัปเดตค่ะ' : '');
+}
+
+export function editPromptCard() {
+  return shortCard('✏️ ต้องการแก้ไขส่วนไหนค่ะ', colors.edit);
+}
+
+export function dailySummaryCard(date, totals) {
+  const dateLabel = date.split('-').reverse().join('/');
+  const title = '📊 สรุปยอดวันนี้';
+  const fallback = [title + ' · ' + dateLabel];
+  const sections = [
+    ['👤 ส่วนตัว', totals.personal, colors.personal, '#ECF7F2'],
+    ['🏢 บริษัท', totals.company, colors.company, '#EFF5F8'],
+  ].map(([label, balance, color, backgroundColor]) => {
+    fallback.push(label);
+    const rows = [text(label, { size: 'md', color, weight: 'bold' })];
+    if (!balance) {
+      const unavailable = 'ยังอ่านยอดไม่ได้ค่ะ';
+      fallback.push(unavailable);
+      rows.push(text(unavailable, { size: 'sm', color: colors.label }));
+    } else {
+      for (const [name, value] of [['รายรับวันนี้', balance.income], ['รายจ่ายวันนี้', balance.expense],
+        ['ยอดสุทธิ', balance.income - balance.expense]]) {
+        const amount = baht(value) + ' บาท';
+        const net = name === 'ยอดสุทธิ';
+        fallback.push(name + ' ' + amount);
+        if (net) rows.push({ type: 'separator', color: colors.divider });
+        rows.push(box('horizontal', [
+          text(name, { size: 'sm', flex: 0, color: colors.label }),
+          text(amount, { size: 'sm', align: 'end', color: net && value < 0 ? '#9E3832' : color,
+            weight: net ? 'bold' : 'regular' }),
+        ], { spacing: 'sm' }));
+      }
+    }
+    return box('vertical', rows, { paddingAll: 'md', spacing: 'sm', cornerRadius: '12px', backgroundColor });
+  });
+  return {
+    type: 'flex', altText: fallbackText(fallback),
+    contents: {
+      type: 'bubble', size: 'mega',
+      header: box('vertical', [
+        text(title, { size: 'lg', weight: 'bold', color: colors.paper }),
+        text(dateLabel, { size: 'sm', color: colors.status, margin: 'xs' }),
+      ], { paddingAll: 'lg', backgroundColor: colors.personal }),
+      body: box('vertical', sections, { paddingAll: 'lg', spacing: 'md' }),
+    },
+  };
+}
+
 export function draftCard(summary, reference, state, editable) {
   const saving = state === 'saving';
   const status = (saving ? 'กำลังตรวจผลการบันทึก ' : 'ตรวจร่าง ') + reference;
