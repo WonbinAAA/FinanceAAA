@@ -1,4 +1,5 @@
 import { baht } from './line-ledger.js';
+import { companyDirections, companyFormFields, companyFunding, companyItemFields, isSelfAllowance } from './line-company.js';
 
 const colors = {
   personal: '#075752', company: '#193E4C', paper: '#FFFFFF', text: '#15383A', label: '#51656A',
@@ -32,11 +33,30 @@ export function personalExpenseFields({ cents, date, account, item, note }) {
   ];
 }
 
+export function companySummaryFields(summary, applicable = companyItemFields(summary)) {
+  const values = {
+    ...summary,
+    direction: companyDirections[summary.direction],
+    cents: summary.cents ? baht(summary.cents) + ' บาท' : '',
+    date: summary.date?.split('-').reverse().join('/'),
+    fundingKind: companyFunding[summary.fundingKind],
+  };
+  const fields = companyFormFields(summary, applicable).slice(1).map(([key, label]) => [label, values[key] || '—']);
+  if (isSelfAllowance(summary)) fields.push(['ผลต่อบัญชี', 'ยอดธนาคารจะปรับเมื่อได้รับเงินจริงค่ะ']);
+  if (summary.personalCents !== undefined) fields.push(['ยอดที่ต้องสำรองจ่าย', baht(summary.personalCents) + ' บาท']);
+  return fields;
+}
+
 function summaryFields(summary) {
   if (isPersonalExpense(summary)) return personalExpenseFields(summary);
+  if (summary.scope === 'บริษัท') {
+    const data = summary.direction === 'expense' && !summary.fundingKind ? { ...summary, fundingKind: 'EXPENSE' } : summary;
+    const fields = companyItemFields(data);
+    return companySummaryFields(data, { ...fields, vehicle: fields.vehicle || Boolean(data.vehicle) });
+  }
   const fields = [
     ['ยอด', baht(summary.cents) + ' บาท'], ['วันที่', summary.date], ['บัญชี', summary.account],
-    [summary.scope === 'บริษัท' ? 'รายการ' : 'หมวด', summary.item],
+    ['หมวด', summary.item],
   ];
   for (const [label, value] of [['โครงการ', summary.project], ['ทะเบียน', summary.vehicle],
     ['ที่พัก', summary.lodging], ['หมายเหตุ', summary.note]]) {
@@ -74,8 +94,11 @@ function fallbackText(lines) {
   return joined.length <= 400 ? joined : joined.slice(0, 399).replace(/[\uD800-\uDBFF]$/u, '') + '…';
 }
 
+const labelSegments = new Intl.Segmenter('th', { granularity: 'grapheme' });
+
 export function cardButton(label, action) {
-  const actionLabel = label.length > 20 ? label.slice(0, 19).replace(/[\uD800-\uDBFF]$/u, '') + '…' : label;
+  const segments = [...labelSegments.segment(label)];
+  const actionLabel = segments.length > 40 ? label.slice(0, segments[39].index) + '…' : label;
   return box('vertical', [text(label, { size: 'sm', color: colors.personal,
     align: 'center', weight: 'bold' })], {
     flex: 1, justifyContent: 'center', cornerRadius: '12px', paddingAll: 'lg',
@@ -172,7 +195,9 @@ export function draftCard(summary, reference, state, editable) {
   const saving = state === 'saving';
   const status = (saving ? 'กำลังตรวจผลการบันทึก ' : 'ตรวจร่าง ') + reference;
   const direction = summary.direction === 'income' ? 'รายรับ' : 'รายจ่าย';
-  const title = direction + summary.scope;
+  const title = summary.scope === 'บริษัท'
+    ? (summary.direction === 'income' ? companyDirections.income : 'เงินจ่ายบริษัท')
+    : direction + summary.scope;
   const fallbackTitle = isPersonalExpense(summary) ? title
     : (summary.direction === 'income' ? 'รับ' : 'จ่าย') + ' · ' + summary.scope;
   const fields = summaryFields(summary);

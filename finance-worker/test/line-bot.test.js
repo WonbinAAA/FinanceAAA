@@ -178,6 +178,7 @@ test('guided input asks for unresolved details and late menu redelivery cannot r
   let captured;
   h.env.COMPANY_LEDGER = { async fetch(request) {
     const path = new URL(request.url).pathname;
+    if (path.endsWith('/bootstrap')) return Response.json({ refs: [] });
     if (path.endsWith('/finance/options')) return Response.json({ enabled: true, accounts: [{ account_id: 'KTB', account_name: 'กรุงไทย' }] });
     assert.match(path, /finance\/preview$/);
     captured = await request.json();
@@ -191,9 +192,15 @@ test('guided input asks for unresolved details and late menu redelivery cannot r
   await h.send('บริษัท');
   await h.submit([stale]);
   let reply = await h.send('ซื้ออุปกรณ์ 125 บาท บัญชีอื่น');
-  assert.match(replyText(reply), /ร่าง · บริษัท[\s\S]*กรุณาเลือกบัญชี/);
+  assert.match(replyText(reply), /ร่าง · บริษัท[\s\S]*กรุณาเลือกประเภทเงิน/);
   assert.equal(captured, undefined);
-  reply = await h.send(action(reply, 'กรุงไทย'));
+  const kinds = await h.send(action(reply, 'ประเภทเงิน'));
+  assert.deepEqual(actions(kinds.contents.footer).slice(0, 3).map(option => option.label),
+    ['ค่าใช้จ่ายบริษัท', 'จ่ายเบี้ยเลี้ยงให้คนอื่น', 'เบี้ยเลี้ยงตัวเอง']);
+  reply = await h.send(action(kinds, 'ค่าใช้จ่ายบริษัท'));
+  assert.match(replyText(reply), /กรุณาเลือกบัญชีที่จ่ายเงินจริง/);
+  const accounts = await h.send(action(reply, 'บัญชีที่จ่ายเงินจริง'));
+  reply = await h.send(action(accounts, 'กรุงไทย'));
   assert.match(replyText(reply), /จ่าย · บริษัท[\s\S]*ยอดที่ต้องสำรองจ่าย 25\.00 บาท/);
   assert.equal(captured.finance.accountId, 'KTB');
   assert.equal(captured.itemBase, 'ซื้ออุปกรณ์');
@@ -403,7 +410,7 @@ test('company uses native entry preview and commit with a stable mutation ID aft
     companyRecord = body;
     throw new Error('response lost after commit');
   } };
-  const draft = await h.send('จ่าย | 100 | บริษัท | ' + bank + ' | ค่าวัสดุ');
+  const draft = await h.send('จ่าย | 100 | บริษัท | ' + bank + ' | ค่าวัสดุ | ประเภทเงิน=ค่าใช้จ่ายบริษัท');
   assert.match(replyText(draft), /สำรองจ่าย 25\.00 บาท/);
   assert.equal(writes, 0);
   assert.match(replyText(await h.send(action(draft))), /ยังตรวจผลไม่ได้/);
@@ -436,11 +443,11 @@ test('company shortfall conflict produces no Finance entry and can be reviewed a
     assert.equal(body.expectedPersonalCents, 5000);
     return Response.json({ error: 'ยอดเงินบริษัทเปลี่ยนแล้ว' }, { status: 409 });
   } };
-  const expenseDraft = await h.send('จ่าย | 100 | บริษัท | ' + bank + ' | ค่าวัสดุ');
+  const expenseDraft = await h.send('จ่าย | 100 | บริษัท | ' + bank + ' | ค่าวัสดุ | ประเภทเงิน=ค่าใช้จ่ายบริษัท');
   assert.match(replyText(await h.send(action(expenseDraft))), /ยอดเงินบริษัทเปลี่ยนแล้ว/);
   assert.equal(h.DB.sqlite.prepare('SELECT state FROM line_drafts').get().state, 'ready');
   await h.send(action(expenseDraft, 'ยกเลิก'));
-  const newer = await h.send('จ่าย | 100 | บริษัท | ' + bank + ' | ค่าวัสดุ');
+  const newer = await h.send('จ่าย | 100 | บริษัท | ' + bank + ' | ค่าวัสดุ | ประเภทเงิน=ค่าใช้จ่ายบริษัท');
   assert.match(replyText(newer), /สำรองจ่าย 70\.00 บาท/);
   const incomeDraft = await h.send('รับ | 500 | บริษัท | ' + bank + ' | เงินโอนจากบริษัท');
   assert.equal(replyText(await h.send(action(incomeDraft))), '✅ บันทึกรายการเงินโอนจากบริษัทแล้วค่ะ');
@@ -565,21 +572,84 @@ test('company item and vehicle menus read the company directory and enforce appl
       return Response.json({ error: 'รายการนี้ต้องระบุทะเบียนรถ' }, { status: 400 });
     return Response.json({ entries: [{ id: previewBody.id, personal_cents: 0 }] });
   } };
-  const draft = await h.send('จ่าย | 100 | บริษัท | ' + bank + ' | ค่าวัสดุ');
+  const draft = await h.send('จ่าย | 100 | บริษัท | ' + bank + ' | ค่าวัสดุ | ประเภทเงิน=ค่าใช้จ่ายบริษัท');
   const edit = await h.send(action(draft, 'แก้ไข'));
   assert.ok(!actions(edit.contents.footer).some(button => button.label === 'ทะเบียนรถ'));
   const items = await h.send(action(edit, 'รายการ'));
   assert.deepEqual(actions(items.contents.footer).map(button => button.label),
     ['ค่าวัสดุ', 'ค่าดูแลรถ', 'พิมพ์ชื่อรายการ', 'กลับไปเลือกช่อง']);
   const incomplete = await h.send(action(items, 'ค่าดูแลรถ'));
-  assert.match(replyText(incomplete), /รายการนี้ต้องระบุทะเบียนรถ/);
+  assert.match(replyText(incomplete), /กรุณาเลือกทะเบียนรถ/);
   const vehicles = await h.send(action(incomplete, 'ทะเบียนรถ'));
   const reviewed = await h.send(action(vehicles, 'ทะเบียนจำลอง'));
-  assert.match(replyText(reviewed), /รายการ ค่าดูแลรถ\nทะเบียน ทะเบียนจำลอง/);
-  const projects = await h.send(action(await h.send(action(reviewed, 'แก้ไข')), 'โครงการ'));
+  assert.match(replyText(reviewed), /รายการ ค่าดูแลรถ\nทะเบียนรถ ทะเบียนจำลอง/);
+  const projects = await h.send(action(await h.send(action(reviewed, 'แก้ไข')), 'งาน / โครงการ'));
   const withProject = await h.send(action(projects, 'โครงการจำลอง'));
   assert.match(replyText(withProject), /โครงการ โครงการจำลอง/);
   assert.equal(previewBody.projectId, 'p1');
   assert.equal(previewBody.vehicleId, 'v1');
   assert.equal((await h.lines()).length, 0);
+});
+
+test('the company form follows web field order and saves allowances with the selected funding and recipient', async t => {
+  const h = await harness(t);
+  const refs = [
+    { id: 'allowance', name: 'เบี้ยเลี้ยง', kind: 'item', direction: 'expense', active: 1 },
+    { id: 'advance', name: 'เงินทดรอง', kind: 'item', direction: 'income', active: 1 },
+    { id: 'person1', name: 'ผู้รับจำลอง', kind: 'person', active: 1 },
+  ];
+  const priorNote = 'หมายเหตุจำลอง '.repeat(15).trim();
+  const writes = [];
+  h.env.COMPANY_LEDGER = { async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path.endsWith('/bootstrap')) return Response.json({ refs, entries: [{ note: priorNote }, { note: 'หมายเหตุที่ลบ', deleted_at: 'y' }] });
+    if (path.endsWith('/finance/options')) return Response.json({ enabled: true, accounts: [
+      { account_id: 'ACC1', account_name: bank },
+    ] });
+    if (path.endsWith('/mutation-status')) return Response.json({ found: false });
+    const body = await request.json();
+    if (path.endsWith('/finance/preview')) {
+      return Response.json({ entries: [{ id: body.id, personal_cents: body.finance.kind === 'OTHER_ALLOWANCE' ? 5000 : 0 }] });
+    }
+    assert.ok(path.endsWith('/entries'));
+    writes.push(body);
+    return Response.json({ id: body.id, finance: { pending: 0 } });
+  } };
+  const start = await h.send('บริษัท');
+  const initial = await h.send(action(start, 'เงินจ่าย'));
+  assert.deepEqual(actions(initial.contents.footer).map(button => button.label),
+    ['รับ–จ่าย', 'จำนวนเงิน', 'วันที่รายการ', 'รายการ', 'งาน / โครงการ', 'ประเภทเงิน', 'บัญชีที่จ่ายเงินจริง', 'หมายเหตุ', 'ยกเลิก']);
+  let pending = await h.send('จ่าย | 50 | บริษัท | | เบี้ยเลี้ยง');
+  assert.match(replyText(pending), /กรุณาเลือกผู้รับเบี้ยเลี้ยง/);
+  const people = await h.send(action(pending, 'ผู้รับเบี้ยเลี้ยง'));
+  pending = await h.send(action(people, 'ผู้รับจำลอง'));
+  const funding = await h.send(action(pending, 'ประเภทเงิน'));
+  let draft = await h.send(action(funding, 'เบี้ยเลี้ยงตัวเอง'));
+  assert.match(replyText(draft), /ประเภทเงิน เบี้ยเลี้ยงตัวเอง/);
+  assert.doesNotMatch(replyText(draft), /บัญชีที่จ่ายเงินจริง|ยอดที่ต้องสำรองจ่าย/);
+  const edit = await h.send(action(draft, 'แก้ไข'));
+  const oldNotes = await h.send(action(edit, 'หมายเหตุ'));
+  const selectedNote = actions(oldNotes.contents.footer).find(button => button.label.startsWith('หมายเหตุจำลอง'));
+  assert.ok(selectedNote);
+  assert.ok(!actions(oldNotes.contents.footer).some(button => button.label === 'หมายเหตุที่ลบ'));
+  draft = await h.send(selectedNote);
+  assert.equal(writes.length, 0);
+  await h.send(action(draft));
+  assert.deepEqual(writes[0].finance, { accountId: '', kind: 'SELF_ALLOWANCE' });
+  assert.equal(writes[0].personId, 'person1');
+  assert.equal(writes[0].note, priorNote);
+  assert.equal(writes[0].expectedPersonalCents, undefined);
+
+  draft = await h.send('จ่าย | 50 | บริษัท | ' + bank + ' | เบี้ยเลี้ยง | ผู้รับเบี้ยเลี้ยง=person1 | ประเภทเงิน=จ่ายเบี้ยเลี้ยงให้คนอื่น');
+  assert.match(replyText(draft), /บัญชีที่จ่ายเงินจริง บัญชีจำลอง A[\s\S]*ยอดที่ต้องสำรองจ่าย 50\.00 บาท/);
+  const initialEdit = await h.send(action(draft, 'แก้ไข'));
+  const directions = await h.send(action(initialEdit, 'รับ–จ่าย'));
+  const income = await h.send(action(directions, 'รับเงินบริษัท'));
+  assert.match(replyText(income), /รับเงินบริษัท[\s\S]*บัญชีที่รับเงินจริง บัญชีจำลอง A/);
+  assert.doesNotMatch(replyText(income), /ผู้รับเบี้ยเลี้ยง|ประเภทเงิน/);
+  const incomeItems = await h.send(action(income, 'รายการ'));
+  const reviewed = await h.send(action(incomeItems, 'เงินทดรอง'));
+  await h.send(action(reviewed));
+  assert.deepEqual(writes[1].finance, { accountId: 'ACC1', kind: 'ADVANCE' });
+  assert.equal(writes[1].personId, undefined);
 });

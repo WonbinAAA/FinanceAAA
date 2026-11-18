@@ -1,19 +1,23 @@
 import { AppError, json } from './errors.js';
 import { sha256 } from './auth.js';
-import { baht, companyItemFields, companyRefs, lineEditChoices, lineInputChoices, listLineChoices, parseAmount, parseDate,
+import { baht, companyRefs, lineEditChoices, lineInputChoices, listLineChoices, parseAmount, parseDate,
   prepareLineDraft, readLineDailyTotals, saveLineDraft } from './line-ledger.js';
+import { cleanCompanyItemFields, companyDirections, companyItemFields } from './line-company.js';
 import { downloadSlip, readLimitedBody, readSlip } from './line-slip.js';
 import { defaultLineAccount, initialLineInput, missingLineInput, readExplicitLineInput, readLineInput, setLineInputField,
   slipInputSuggestions } from './line-input.js';
-import { cardButton, dailySummaryCard, draftCard, isPersonalExpense, messageCard, parseDraftCardAction, personalExpenseFields, savedCard } from './line-card.js';
-import { editChoicesCard, editDateCard, editFields, editFieldsCard, editInputCard, isEditChoiceField, parseLineEditAction } from './line-edit.js';
+import { cardButton, companySummaryFields, dailySummaryCard, draftCard, isPersonalExpense, messageCard,
+  parseDraftCardAction, personalExpenseFields, savedCard } from './line-card.js';
+import { canClearCompanyField, companyDetailsCard, editChoicesCard, editDateCard, editFields, editFieldsCard,
+  editInputCard, isEditChoiceField, parseLineEditAction } from './line-edit.js';
 
 const thaiDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Bangkok' });
 const draftAge = 24 * 60 * 60 * 1000;
 const lease = 45 * 1000;
 const selectionAge = 30 * 60 * 1000;
 const directions = { รับ: 'income', จ่าย: 'expense' };
-const optionalFields = { วันที่: 'date', โครงการ: 'project', ทะเบียน: 'vehicle', ที่พัก: 'lodging' };
+const optionalFields = { วันที่: 'date', โครงการ: 'project', 'งาน / โครงการ': 'project', ทะเบียน: 'vehicle',
+  ที่พัก: 'lodging', ชื่อที่พัก: 'lodging', ประเภทเงิน: 'fundingKind', ผู้รับเบี้ยเลี้ยง: 'person' };
 const scopes = ['ส่วนตัว', 'บริษัท'];
 const dailySummaryCommand = 'สรุปยอดวันนี้';
 
@@ -29,11 +33,11 @@ function message(text, buttons = []) {
 
 function parseEntry(parts, scan) {
   const [command, amount, scope, account, item, ...extras] = parts;
-  if (!Object.hasOwn(directions, command) || !['ส่วนตัว', 'บริษัท'].includes(scope) || !account || !item) {
+  if (!Object.hasOwn(directions, command) || !scopes.includes(scope) || (scope === 'ส่วนตัว' && !account) || !item) {
     throw new AppError('กรุณาระบุ รับ/จ่าย, ยอด, ส่วนตัว/บริษัท, บัญชี และหมวดหรือชื่อรายการค่ะ');
   }
   if (account.length > 200 || item.length > 200) throw new AppError('ชื่อบัญชีหรือรายการยาวเกิน 200 ตัวอักษรค่ะ');
-  const data = { direction: directions[command], scope, account, item, note: scan?.note || '', fromImage: !!scan };
+  let data = { direction: directions[command], scope, account, item, note: scan?.note || '', fromImage: !!scan };
   if (extras[0] && !extras[0].includes('=')) data.note = extras.shift();
   if (extras[0] === '') extras.shift();
   if (data.note.length > 2000) throw new AppError('หมายเหตุยาวเกิน 2,000 ตัวอักษรค่ะ');
@@ -45,8 +49,8 @@ function parseEntry(parts, scan) {
     const value = fieldMatch[2].trim();
     if (!value || value.length > 200 || Object.hasOwn(data, property))
       throw new AppError('กรุณาตรวจค่าช่องเพิ่มเติมและกรอกแต่ละช่องครั้งเดียวค่ะ');
-    if (scope === 'ส่วนตัว' && property !== 'date') throw new AppError('โครงการ ทะเบียน และที่พักใช้กับรายการบริษัทค่ะ');
-    data[property] = value;
+    if (scope === 'ส่วนตัว' && property !== 'date') throw new AppError('ช่องนี้ใช้กับรายการบริษัทค่ะ');
+    data = property === 'fundingKind' ? setLineInputField(data, property, value) : { ...data, [property]: value };
   }
   data.cents = amount === '-' && scan ? scan.cents : parseAmount(amount);
   if (!data.cents) throw new AppError('กรุณากรอกยอดมากกว่า 0 และใช้ทศนิยมสูงสุดสองตำแหน่งค่ะ');
@@ -64,14 +68,19 @@ function code(row) {
 }
 
 function draftEditEntry(row) {
-  if (row.entry_json) return JSON.parse(row.entry_json);
   const { body, summary } = JSON.parse(row.draft_json);
   const company = summary.scope === 'บริษัท';
+  if (row.entry_json) {
+    const entry = JSON.parse(row.entry_json);
+    if (company) entry.fundingKind ??= body.finance.kind;
+    return entry;
+  }
   return {
     scope: summary.scope, direction: summary.direction, cents: summary.cents, date: summary.date, note: summary.note,
     account: company ? body.finance.accountId : body.account_id,
     item: company ? body.itemBase : body.category_id, fromImage: Boolean(row.scan_json),
-    ...(company ? { project: body.projectId, vehicle: body.vehicleId, lodging: body.lodgingName } : {}),
+    ...(company ? { project: body.projectId, vehicle: body.vehicleId, lodging: body.lodgingName,
+      person: body.personId, fundingKind: body.finance.kind } : {}),
   };
 }
 
@@ -85,11 +94,28 @@ async function currentEditFields(env, entry) {
   return editFields(entry, refs);
 }
 
+function companyGuidedMessage(row, entry, options, issue) {
+  const applicable = companyItemFields(entry, options.refs);
+  const fields = editFields(entry, options.refs);
+  const missing = missingLineInput(entry, applicable);
+  const summary = { ...entry, account: options.accounts?.find(value => value.id === entry.account)?.name ?? entry.account };
+  for (const key of ['project', 'vehicle', 'person']) {
+    summary[key] = options.refs?.find(ref => ref.id === entry[key] && ref.kind === key)?.name ?? entry[key];
+  }
+  const title = companyDirections[entry.direction];
+  const label = fields.find(([key]) => key === missing)?.[1];
+  const prompt = missing === 'direction' ? 'กรุณาเลือกเงินจ่ายหรือรับเงินบริษัทค่ะ'
+    : label ? 'กรุณา' + (['cents', 'date'].includes(missing) ? 'ระบุ' : 'เลือก') + label + 'ค่ะ' : '';
+  const lines = ['ร่าง' + (entry.fromImage ? 'สลิป' : '') + ' · บริษัท', title, issue || prompt,
+    ...companySummaryFields(summary, applicable).map(([name, value]) => name + ' ' + value)];
+  return companyDetailsCard(lines.filter(Boolean).join('\n'), row.id + '-' + row.version, fields, missing);
+}
+
 function guidedMessage(row, options = {}, issue = '') {
   const entry = JSON.parse(row.entry_json);
+  if (entry.scope === 'บริษัท') return companyGuidedMessage(row, entry, options, issue);
   const missing = missingLineInput(entry);
   const command = field => 'เติม ' + code(row) + ' | ' + field;
-  const itemLabel = entry.scope === 'ส่วนตัว' ? 'หมวด' : 'รายการ';
   const account = options.accounts?.find(value => value.id === entry.account)?.name ?? entry.account;
   const item = options.categories?.find(value => value.id === entry.item)?.name ?? entry.item;
   const personalExpense = isPersonalExpense(entry);
@@ -101,8 +127,8 @@ function guidedMessage(row, options = {}, issue = '') {
     const overview = [entry.direction === 'income' ? 'รายรับ' : entry.direction === 'expense' ? 'รายจ่าย' : '',
       entry.cents ? baht(entry.cents) + ' บาท' : '', entry.date || '', account || ''].filter(Boolean).join(' · ');
     if (overview) lines.push(overview);
-    if (item) lines.push(itemLabel + ' ' + item);
-    if (entry.fromImage && entry.note) lines.push((entry.scope === 'บริษัท' ? 'หมายเหตุ ' : 'รายละเอียด ') + entry.note);
+    if (item) lines.push('หมวด ' + item);
+    if (entry.fromImage && entry.note) lines.push('รายละเอียด ' + entry.note);
   }
   const next = {
     direction: entry.fromImage ? 'พิมพ์ว่ารับหรือจ่ายค่าอะไร เช่น “จ่ายค่าอาหาร” ค่ะ' : 'รายการนี้เป็นรายรับหรือรายจ่ายคะ?',
@@ -110,20 +136,18 @@ function guidedMessage(row, options = {}, issue = '') {
     date: 'กรุณาพิมพ์วันที่ เช่น วันที่=2026-11-16 ค่ะ',
     account: 'กรุณาเลือกบัญชี หรือพิมพ์ชื่อ เช่น บัญชี=กรุงไทย ค่ะ',
     item: personalExpense ? 'กรุณาเลือกประเภทรายจ่าย หรือพิมพ์ เช่น ประเภทรายจ่าย=ข้าวเย็น ค่ะ'
-      : entry.scope === 'ส่วนตัว' ? 'กรุณาเลือกหมวด หรือพิมพ์ เช่น หมวด=อาหาร ค่ะ'
-      : 'กรุณาพิมพ์ชื่อรายการ เช่น รายการ=ค่าอุปกรณ์สำนักงาน ค่ะ',
+      : 'กรุณาเลือกหมวด หรือพิมพ์ เช่น หมวด=อาหาร ค่ะ',
   };
   if (issue) lines.push(issue);
   const editHelp = personalExpense ? 'พิมพ์ช่องที่ต้องการแก้ เช่น จำนวนเงิน=50 หรือ รายละเอียด=ไก่ทอด ค่ะ'
     : 'พิมพ์ช่องที่ต้องการแก้ เช่น บัญชี=เงินสด, ยอด=50 หรือ วันที่=2026-11-16 ค่ะ';
   lines.push(next[missing] || editHelp);
-  if (issue && entry.scope === 'บริษัท') lines.push('ระบุโครงการ ทะเบียน หรือที่พักได้ เช่น ทะเบียน=ชื่อทะเบียน ค่ะ');
   const buttons = [];
   if (missing === 'direction') buttons.push(['รายรับ', command('รายรับ')], ['รายจ่าย', command('รายจ่าย')]);
   if (missing === 'account') {
     for (const choice of (options.accounts || []).slice(0, 10)) buttons.push([choice.name.slice(0, 20), command('บัญชี=' + choice.id)]);
   }
-  if (missing === 'item' && entry.scope === 'ส่วนตัว') {
+  if (missing === 'item') {
     for (const choice of (options.categories || []).filter(value => value.direction === entry.direction).slice(0, 10))
       buttons.push([choice.name.slice(0, 20), command('หมวด=' + choice.id)]);
   }
@@ -159,6 +183,15 @@ function draftMessage(row) {
   return draftCard(summary, code(row), row.state, true);
 }
 
+async function viewDraft(env, row) {
+  if (row?.state !== 'details' || !row.entry_json) return draftMessage(row);
+  const entry = JSON.parse(row.entry_json);
+  if (entry.scope !== 'บริษัท') return draftMessage(row);
+  const [choices, refs] = await Promise.all([lineInputChoices(env), companyRefs(env).catch(() => undefined)]);
+  if (Object.hasOwn(entry, 'editField')) return editingCard(row, entry, editFields(entry, refs));
+  return guidedMessage(row, { ...choices, refs });
+}
+
 async function draftId(owner, event) {
   const bytes = new TextEncoder().encode(owner + '\n' + event.webhookEventId);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -185,8 +218,8 @@ async function bindInputDraft(db, owner, session, id) {
   return result.meta.changes > 0;
 }
 
-async function reviewLineEntry(env, entry, id) {
-  if (!entry || missingLineInput(entry)) return { draft: null, issue: '' };
+async function reviewLineEntry(env, entry, id, applicable) {
+  if (!entry || missingLineInput(entry, applicable)) return { draft: null, issue: '' };
   try { return { draft: await prepareLineDraft(env, entry, id), issue: '' }; }
   catch (error) {
     return { draft: null, issue: error instanceof AppError ? error.message : 'ยังตรวจร่างไม่ได้ค่ะ ลองกดตรวจร่างอีกครั้ง' };
@@ -199,7 +232,7 @@ async function updateGuidedDraft(env, owner, row, input, event, companyDirectory
     return draftMessage(row);
   const before = JSON.parse(row.entry_json);
   const editing = Object.hasOwn(before, 'editField');
-  const choices = editing ? undefined : await lineInputChoices(env);
+  const choices = editing && before.scope !== 'บริษัท' ? undefined : await lineInputChoices(env);
   let entry;
   if (typeof input !== 'string') entry = input;
   else if (input === 'ตรวจร่าง') entry = { ...before };
@@ -221,13 +254,14 @@ async function updateGuidedDraft(env, owner, row, input, event, companyDirectory
     }
   }
 
-  if (editing && entry.scope === 'บริษัท' && (before.item !== entry.item || before.direction !== entry.direction)) {
-    companyDirectory ??= await companyRefs(env);
-    const applicable = companyItemFields(entry, companyDirectory);
-    if (!applicable.vehicle) delete entry.vehicle;
-    if (!applicable.lodging) delete entry.lodging;
+  const company = entry.scope === 'บริษัท';
+  if (company && (entry.item || before.item)) {
+    companyDirectory ??= await companyRefs(env).catch(() => undefined);
+    if (before.item !== entry.item || before.direction !== entry.direction)
+      cleanCompanyItemFields(entry, companyItemFields(entry, companyDirectory));
   }
-  const { draft, issue } = await reviewLineEntry(env, entry, row.id);
+  const applicable = company ? companyItemFields(entry, companyDirectory) : undefined;
+  const { draft, issue } = await reviewLineEntry(env, entry, row.id, applicable);
   if (draft) delete entry.editField;
   else if (editing) entry.editField = null;
   const update = await env.DB.prepare('UPDATE line_drafts SET state=?,version=version+1,entry_json=?,draft_json=?,details_order=? '
@@ -236,8 +270,8 @@ async function updateGuidedDraft(env, owner, row, input, event, companyDirectory
       order, row.id, owner, row.version).run();
   const current = await getDraft(env.DB, owner, row.id);
   if (!update.meta.changes || current.state !== 'details') return draftMessage(current);
-  if (editing) return editFieldsCard(code(current), companyDirectory ? editFields(entry, companyDirectory)
-    : await currentEditFields(env, entry), issue);
+  if (company) return guidedMessage(current, { ...choices, refs: companyDirectory }, issue);
+  if (editing) return editFieldsCard(code(current), editFields(entry), issue);
   return guidedMessage(current, choices, issue || (!missingLineInput(entry) ? 'กรุณาตรวจข้อมูลร่างอีกครั้งค่ะ' : ''));
 }
 
@@ -298,18 +332,25 @@ async function editMenuAction(env, owner, action, event, oldLabel) {
   if (row?.state !== 'details' || !row.entry_json || row.version !== version
     || row.details_order && eventOrder(event) <= row.details_order) return draftMessage(row);
   const entry = JSON.parse(row.entry_json);
-  if (!Object.hasOwn(entry, 'editField') && !oldLabel) return draftMessage(row);
-  const fields = step === 'back' || action.field === 'vehicle' || action.field === 'lodging' || oldLabel
+  const company = entry.scope === 'บริษัท';
+  const editing = Object.hasOwn(entry, 'editField');
+  const reference = row.id + '-' + row.version;
+  if (!company && !editing && !oldLabel) return draftMessage(row);
+  const fields = step === 'back' || ['vehicle', 'person', 'lodging'].includes(action.field) || oldLabel
     ? await currentEditFields(env, entry) : editFields(entry);
-  if (!Object.hasOwn(entry, 'editField')) return setEditFocus(env, owner, row, entry, null, event, fields);
+  if (!company && !editing) return setEditFocus(env, owner, row, entry, null, event, fields);
   if (step === 'back') return setEditFocus(env, owner, row, entry, null, event, fields);
   const field = oldLabel ? fields.find(([, label]) => label === oldLabel)?.[0] : action.field;
   const label = fields.find(([key]) => key === field)?.[1];
   if (!label) return editingCard(row, entry, fields);
-  const hasChoices = isEditChoiceField(field);
+  if (step === 'clear' && company && canClearCompanyField(field)) {
+    const updated = { ...entry, [field]: '' };
+    return updateGuidedDraft(env, owner, row, updated, event);
+  }
+  const hasChoices = isEditChoiceField(field, entry);
   if ((step === 'field' || step === 'type') && !hasChoices
-    || step === 'type' && field === 'item' && entry.scope === 'บริษัท') {
-    if (field === 'date' && step === 'field') return editDateCard(code(row));
+    || step === 'type' && company && ['item', 'note'].includes(field)) {
+    if (field === 'date' && step === 'field') return editDateCard(reference);
     return setEditFocus(env, owner, row, entry, field, event, fields);
   }
   if (step === 'set' && field === 'date' && ['today', 'yesterday'].includes(value)) {
@@ -320,11 +361,12 @@ async function editMenuAction(env, owner, action, event, oldLabel) {
   const { options, refs } = await lineEditChoices(env, entry, field);
   if (step === 'field') {
     const page = /^[0-9]{1,6}$/u.test(value ?? '') ? Number(value) : 0;
-    return editChoicesCard(code(row), field, label, options, page);
+    return editChoicesCard(reference, field, label, options, page);
   }
   const selected = options.find(option => String(option.id) === value);
-  if (!selected) return editChoicesCard(code(row), field, label, options, 0, 'ตัวเลือกนี้เปลี่ยนแล้วค่ะ กรุณาเลือกใหม่');
-  const updated = { ...entry, [field]: field === 'item' && entry.scope === 'บริษัท' ? selected.name : String(selected.id) };
+  if (!selected) return editChoicesCard(reference, field, label, options, 0, 'ตัวเลือกนี้เปลี่ยนแล้วค่ะ กรุณาเลือกใหม่');
+  const selectedValue = field === 'item' && company ? selected.name : selected.value ?? String(selected.id);
+  const updated = setLineInputField(entry, field, selectedValue);
   return updateGuidedDraft(env, owner, row, updated, event, refs);
 }
 
@@ -389,7 +431,7 @@ async function receiveImage(env, owner, id, event, now) {
     const update = await env.DB.prepare(
       "UPDATE line_drafts SET state=?,version=version+?,scan_json=?,entry_json=?,draft_json=?,details_order=?,lease_until=0 "
       + 'WHERE id=? AND state=? AND lease_until=? AND version=?',
-    ).bind(draft ? 'ready' : 'details', draft || before ? 1 : 0, JSON.stringify(scan), entry ? JSON.stringify(entry) : null,
+    ).bind(draft ? 'ready' : 'details', draft || before || scope === 'บริษัท' ? 1 : 0, JSON.stringify(scan), entry ? JSON.stringify(entry) : null,
       draft ? JSON.stringify(draft) : null, entry ? eventOrder(event) : null, row.id, row.state, now + lease, row.version).run();
     const current = await getDraft(env.DB, owner, row.id);
     if (update.meta.changes && current.state === 'details' && entry) return guidedMessage(current, choices, issue);
@@ -398,10 +440,19 @@ async function receiveImage(env, owner, id, event, now) {
   return draftMessage(await getDraft(env.DB, owner, row.id));
 }
 
-async function newEntry(env, owner, id, parts, now) {
+async function newEntry(env, owner, id, parts, now, event) {
   const existing = await getDraft(env.DB, owner, id);
   if (existing) return draftMessage(existing);
-  const draft = await prepareLineDraft(env, parseEntry(parts, null), id);
+  const entry = parseEntry(parts, null);
+  if (entry.scope === 'บริษัท') {
+    await env.DB.prepare("INSERT OR IGNORE INTO line_drafts(id,owner_hash,state,created_at,entry_json) VALUES(?,?,'details',?,?)")
+      .bind(id, owner, now, JSON.stringify(entry)).run();
+    const row = await getDraft(env.DB, owner, id);
+    const result = await updateGuidedDraft(env, owner, row, entry, event);
+    if ((await getDraft(env.DB, owner, id)).state === 'details') await selectInputScope(env.DB, owner, entry.scope, event, id);
+    return result;
+  }
+  const draft = await prepareLineDraft(env, entry, id);
   await env.DB.prepare(
     "INSERT OR IGNORE INTO line_drafts(id,owner_hash,state,version,created_at,draft_json) VALUES(?,?,'ready',1,?,?)",
   ).bind(id, owner, now, JSON.stringify(draft)).run();
@@ -416,11 +467,19 @@ async function fillSlip(env, owner, id, parts, event) {
   const entry = parseEntry(parts, JSON.parse(row.scan_json));
   if (row.entry_json && entry.scope !== JSON.parse(row.entry_json).scope)
     throw new AppError('สลิปนี้อยู่ในประเภทที่เลือกไว้ค่ะ หากต้องการเปลี่ยนประเภท ให้ยกเลิกและเลือกใหม่');
-  const draft = await prepareLineDraft(env, entry, id);
+  const company = entry.scope === 'บริษัท';
+  const refs = company ? await companyRefs(env).catch(() => undefined) : undefined;
+  const { draft, issue } = company ? await reviewLineEntry(env, entry, id, companyItemFields(entry, refs))
+    : { draft: await prepareLineDraft(env, entry, id) };
   const updated = await env.DB.prepare(
-    "UPDATE line_drafts SET state='ready',version=version+1,draft_json=?,details_order=?,entry_json=? "
+    'UPDATE line_drafts SET state=?,version=version+1,draft_json=?,details_order=?,entry_json=? '
     + "WHERE id=? AND owner_hash=? AND version=? AND state IN ('details','ready')",
-  ).bind(JSON.stringify(draft), order, row.entry_json ? JSON.stringify(entry) : null, id, owner, row.version).run();
+  ).bind(draft ? 'ready' : 'details', draft ? JSON.stringify(draft) : null, order,
+    row.entry_json || company ? JSON.stringify(entry) : null, id, owner, row.version).run();
+  if (updated.meta.changes && company && !draft) {
+    await selectInputScope(env.DB, owner, entry.scope, event, id);
+    return guidedMessage(await getDraft(env.DB, owner, id), { refs }, issue);
+  }
   if (updated.meta.changes === 0) {
     const current = await getDraft(env.DB, owner, id);
     if (current?.state === 'ready' && current.details_order !== order)
@@ -487,7 +546,7 @@ async function textCommand(env, owner, event, now) {
   if (command) {
     const [, verb, rawId, version] = command;
     const id = rawId.toUpperCase();
-    if (verb === 'ร่าง' && parts.length === 1) return draftMessage(await getDraft(env.DB, owner, id));
+    if (verb === 'ร่าง' && parts.length === 1) return viewDraft(env, await getDraft(env.DB, owner, id));
     if (verb === 'สลิป' && !version && parts.length > 1) return fillSlip(env, owner, id, parts.slice(1), event);
     if (['ยืนยัน', 'ยกเลิก'].includes(verb) && parts.length === 1) return actOnDraft(env, owner, id, Number(version || 0), verb, now);
     if (verb === 'แก้ไข' && parts.length === 1) return editGuidedDraft(env, owner, await getDraft(env.DB, owner, id), Number(version || 0), event);
@@ -504,7 +563,7 @@ async function textCommand(env, owner, event, now) {
     const { results } = await env.DB.prepare(
       "SELECT id,state,version FROM line_drafts WHERE owner_hash=? AND state IN ('details','ready','saving') ORDER BY created_at DESC LIMIT 5",
     ).bind(owner).all();
-    if (results.length === 1) return draftMessage(await getDraft(env.DB, owner, results[0].id));
+    if (results.length === 1) return viewDraft(env, await getDraft(env.DB, owner, results[0].id));
     if (results.length) return message('ร่างล่าสุด\n' + results.map(code).join('\n'),
       results.map(row => [code(row), 'ร่าง ' + row.id]));
     return message('ตอนนี้ไม่มีร่างที่รอทำรายการค่ะ');
@@ -516,12 +575,13 @@ async function textCommand(env, owner, event, now) {
   }
   if (input === 'ตัวเลือก') return message('เลือกดูข้อมูลที่ใช้บันทึกรายการค่ะ',
     ['บัญชี', 'รับ', 'จ่าย', 'โครงการ', 'ทะเบียน'].map(name => [name, 'ตัวเลือก ' + name]));
-  if (Object.hasOwn(directions, first) && parts.length > 1) return newEntry(env, owner, await draftId(owner, event), parts, now);
+  if (Object.hasOwn(directions, first) && parts.length > 1) return newEntry(env, owner, await draftId(owner, event), parts, now, event);
   if (scopes.includes(input)) {
     await selectInputScope(env.DB, owner, input, event);
     const personal = input === 'ส่วนตัว';
+    const buttons = personal ? [] : Object.values(companyDirections).map(label => cardButton(label, { type: 'message', text: label }));
     return messageCard((personal ? '👤 ' : '🏢 ') + 'เลือก' + input + 'แล้วค่ะ\nพิมพ์รายการหรือส่งรูปสลิปได้เลยค่ะ',
-      [], { backgroundColor: personal ? '#ECF7F2' : '#EFF5F8' });
+      buttons, { backgroundColor: personal ? '#ECF7F2' : '#EFF5F8', groupFirstTwo: true });
   }
   if (['เมนู', 'ช่วยเหลือ', ''].includes(input)) return scopeMenu();
   return guidedText(env, owner, input, event, now);

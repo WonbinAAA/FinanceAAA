@@ -3,6 +3,7 @@ import { isCompanyCategory } from './company-policy.js';
 import { displayPersonalLedger } from './company-view.js';
 import { AppError } from './errors.js';
 import { createLegacyEngine } from './legacy-engine.js';
+import { companyDirections, companyFunding, companyItemFields, isSelfAllowance } from './line-company.js';
 import { moneyCents } from './schema.js';
 import { commitSnapshot, loadSnapshot, receipt } from './storage.js';
 
@@ -121,18 +122,14 @@ async function requireCompanyLink(env) {
   return options;
 }
 
-export async function companyRefs(env) {
+async function companyDirectory(env) {
   const bootstrap = await companyApi(env, 'bootstrap');
   if (!Array.isArray(bootstrap?.refs)) throw new AppError('อ่านตัวเลือกของเว็บบริษัทไม่ได้ค่ะ', 503);
-  return bootstrap.refs.filter(active);
+  return { refs: bootstrap.refs.filter(active), entries: Array.isArray(bootstrap.entries) ? bootstrap.entries : [] };
 }
 
-export function companyItemFields({ direction, item }, refs = []) {
-  if (direction !== 'expense' || !item) return { vehicle: false, lodging: false };
-  const template = refs.find(ref => ref.kind === 'item' && ref.name === item && ref.direction === direction);
-  const vehicle = Boolean(template?.vehicle_required)
-    || /น้ำมัน|ดีเซล|เบนซิน|แก๊สรถ|ก๊าซรถ|^แก๊ส$|^ก๊าซ$/u.test(item);
-  return { vehicle, lodging: !vehicle && /^(?:ค่า)?(?:ที่พัก|โรงแรม)/u.test(item) };
+export async function companyRefs(env) {
+  return (await companyDirectory(env)).refs;
 }
 
 function runPersonal(snapshot, body) {
@@ -146,14 +143,13 @@ function runPersonal(snapshot, body) {
 }
 
 export async function prepareLineDraft(env, data, draftId) {
-  const snapshot = await loadSnapshot(env.DB);
-  const account = choice(accounts(snapshot), data.account, 'account_id', 'account_name', 'บัญชี');
   const amount = decimalBaht(data.cents);
   const summary = {
-    scope: data.scope, direction: data.direction, account: account.account_name,
-    item: data.item, cents: data.cents, date: data.date, note: data.note,
+    scope: data.scope, direction: data.direction, item: data.item, cents: data.cents, date: data.date, note: data.note,
   };
   if (data.scope === 'ส่วนตัว') {
+    const snapshot = await loadSnapshot(env.DB);
+    const account = choice(accounts(snapshot), data.account, 'account_id', 'account_name', 'บัญชี');
     const transactionType = data.direction === 'income' ? 'INCOME' : 'EXPENSE';
     const category = choice(personalCategories(snapshot, transactionType), data.item, 'category_id', 'category_name', 'หมวดหมู่');
     const body = {
@@ -162,43 +158,37 @@ export async function prepareLineDraft(env, data, draftId) {
       ai_status: data.fromImage ? 'REVIEWED' : 'NONE',
     };
     runPersonal(snapshot, body);
-    return { body, summary: { ...summary, item: category.category_name } };
+    return { body, summary: { ...summary, account: account.account_name, item: category.category_name } };
   }
 
-  await requireCompanyLink(env);
-  if (data.direction === 'expense' && /^เบี้ยเลี้ยง/u.test(data.item))
-    throw new AppError('เบี้ยเลี้ยงต้องเลือกผู้รับและประเภทเงินในเว็บบริษัทค่ะ');
+  const kind = data.direction === 'income' ? 'ADVANCE' : data.fundingKind;
+  if (data.direction === 'expense' && !Object.hasOwn(companyFunding, kind)) throw new AppError('กรุณาเลือกประเภทเงินค่ะ');
+  const configuration = await requireCompanyLink(env);
+  const self = isSelfAllowance(data);
+  const account = self ? null : choice(configuration.accounts || [], data.account, 'account_id', 'account_name', 'บัญชีเงินจริง');
+  summary.account = account?.account_name || '';
+  summary.fundingKind = kind;
   const body = {
     id: 'LINE-' + draftId, date: data.date, direction: data.direction, itemBase: data.item,
-    amount, note: data.note, finance: { accountId: account.account_id,
-      kind: data.direction === 'income' ? 'ADVANCE' : 'EXPENSE' },
+    amount, note: data.note, finance: { accountId: account?.account_id || '', kind },
   };
-  if (data.project || data.vehicle || data.lodging) {
-    const refs = await companyRefs(env);
-    const fields = companyItemFields(data, refs);
-    if (data.vehicle && !fields.vehicle) throw new AppError('รายการนี้ไม่มีช่องทะเบียนรถในเว็บบริษัทค่ะ');
-    if (data.lodging && !fields.lodging)
-      throw new AppError('รายการนี้ไม่มีช่องชื่อที่พักในเว็บบริษัทค่ะ');
-    if (data.project) {
-      const project = choice(refs.filter(ref => ref.kind === 'project'), data.project, 'id', 'name', 'โครงการ');
-      body.projectId = project.id;
-      summary.project = project.name;
-    }
-    if (data.vehicle) {
-      const vehicle = choice(refs.filter(ref => ref.kind === 'vehicle'), data.vehicle, 'id', 'name', 'ทะเบียนรถ');
-      body.vehicleId = vehicle.id;
-      summary.vehicle = vehicle.name;
-    }
+  const refs = data.project || data.vehicle || data.person || data.lodging ? await companyRefs(env) : [];
+  const fields = companyItemFields(data, refs);
+  for (const [key, label] of [['project', 'งาน / โครงการ'], ['vehicle', 'ทะเบียนรถ'], ['person', 'ผู้รับเบี้ยเลี้ยง']]) {
+    if (!data[key]) continue;
+    if (key !== 'project' && !fields[key]) throw new AppError('รายการนี้ไม่มีช่อง' + label + 'ในเว็บบริษัทค่ะ');
+    const selected = choice(refs.filter(ref => ref.kind === key), data[key], 'id', 'name', label);
+    body[key + 'Id'] = selected.id;
+    summary[key] = selected.name;
   }
-  if (data.lodging) {
-    body.lodgingName = data.lodging;
-    summary.lodging = data.lodging;
-  }
+  if (data.lodging && !fields.lodging) throw new AppError('รายการนี้ไม่มีช่องชื่อที่พักในเว็บบริษัทค่ะ');
+  if (fields.lodging) summary.lodging = data.lodging || '';
+  if (data.lodging) body.lodgingName = data.lodging;
   const preview = await companyApi(env, 'finance/preview', body);
   const personalCents = preview?.entries?.find(entry => entry.id === body.id)?.personal_cents;
   if (!Number.isSafeInteger(personalCents) || personalCents < 0 || personalCents > data.cents)
     throw new AppError('เว็บบริษัทยังตรวจยอดรายการให้ไม่ได้ค่ะ', 503);
-  if (data.direction === 'expense') {
+  if (data.direction === 'expense' && !self) {
     body.expectedPersonalCents = personalCents;
     summary.personalCents = personalCents;
   }
@@ -215,14 +205,16 @@ export async function saveLineDraft(env, id, version, draft) {
       return { id: status.result.id, pending: options?.pending > 0 };
     }
     const configuration = await requireCompanyLink(env);
-    if (!configuration.accounts?.some(account => account.account_id === draft.body.finance.accountId
+    if (draft.body.finance.kind !== 'SELF_ALLOWANCE' && !configuration.accounts?.some(account => account.account_id === draft.body.finance.accountId
       && account.account_name === draft.summary.account))
       throw new AppError('บัญชีเปลี่ยนแล้ว กรุณาตรวจข้อมูลและส่งรายการใหม่ค่ะ', 409);
-    if (draft.body.projectId || draft.body.vehicleId) {
+    if (draft.body.projectId || draft.body.vehicleId || draft.body.personId) {
       const refs = await companyRefs(env);
-      if (draft.body.projectId && !refs.some(ref => ref.id === draft.body.projectId && ref.name === draft.summary.project)
-        || draft.body.vehicleId && !refs.some(ref => ref.id === draft.body.vehicleId && ref.name === draft.summary.vehicle))
-        throw new AppError('โครงการหรือทะเบียนเปลี่ยนแล้ว กรุณาตรวจข้อมูลและส่งรายการใหม่ค่ะ', 409);
+      for (const key of ['project', 'vehicle', 'person']) {
+        const id = draft.body[key + 'Id'];
+        if (id && !refs.some(ref => ref.kind === key && ref.id === id && ref.name === draft.summary[key]))
+          throw new AppError('งาน / โครงการ ทะเบียนรถ หรือผู้รับเบี้ยเลี้ยงเปลี่ยนแล้วค่ะ กรุณาตรวจร่างอีกครั้ง', 409);
+      }
     }
     const saved = await companyApi(env, 'entries', { ...draft.body, mutationId: requestId });
     if (saved?.id !== draft.body.id) throw new AppError('ยังตรวจผลการบันทึกไม่ได้ค่ะ ลองยืนยันร่างเดิมอีกครั้ง', 503);
@@ -275,13 +267,23 @@ export async function lineEditChoices(env, entry, field) {
     const { accounts, categories } = await lineInputChoices(env);
     return { options: field === 'account' ? accounts : categories.filter(category => category.direction === entry.direction) };
   }
+  if (field === 'direction' || field === 'fundingKind') {
+    const labels = field === 'direction' ? companyDirections : companyFunding;
+    return { options: Object.entries(labels).map(([id, name]) => ({ id, name })) };
+  }
   if (field === 'account') {
     const { accounts } = await requireCompanyLink(env);
     if (!Array.isArray(accounts)) throw new AppError('ยังอ่านบัญชีของเว็บบริษัทไม่ได้ค่ะ', 503);
     return { options: accounts.map(account => ({ id: account.account_id, name: account.account_name })) };
   }
-  const refs = await companyRefs(env);
-  const options = refs.filter(ref => ref.kind === field && (field !== 'item' || ref.direction === entry.direction
-    && (ref.direction !== 'expense' || !/^เบี้ยเลี้ยง/u.test(ref.name))));
+  const { refs, entries } = await companyDirectory(env);
+  if (field === 'note') {
+    const notes = [...new Set(entries.filter(row => !row.deleted_at).map(row => row.note)
+      .filter(note => typeof note === 'string' && note.trim() && note.length <= 2000))].slice(0, 12);
+    return { refs, options: await Promise.all(notes.map(async note => ({
+      id: await sha256(note), name: note.length > 120 ? [...note].slice(0, 117).join('') + '…' : note, value: note,
+    }))) };
+  }
+  const options = refs.filter(ref => ref.kind === field && (field !== 'item' || ref.direction === entry.direction));
   return { options, refs };
 }
