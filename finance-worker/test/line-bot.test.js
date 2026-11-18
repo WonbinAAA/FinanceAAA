@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import test from 'node:test';
 import { commitSnapshot, loadSnapshot } from '../src/storage.js';
+import { readSlip } from '../src/line-slip.js';
 import worker from '../src/worker.js';
 import { fixture, testDb } from './helpers.js';
 
@@ -154,7 +155,7 @@ test('one mode choice works for an image, preserves the OCR amount during clarif
   const h = await harness(t);
   mockLineInput(h, input => input
     ? { direction: 'expense', categoryId: 'FOOD', description: 'ค่าอาหาร', dateMentioned: false }
-    : { completed: true, amount: '50', date: '2026-11-16' });
+    : { completed: true, amount: '50', dateText: '2026-11-16' });
   await h.send('ส่วนตัว');
   const scan = await h.send({ type: 'image', id: '12345' });
   assert.match(replyText(scan), /ร่างสลิป · ส่วนตัว[\s\S]*50\.00 บาท[\s\S]*กรุงไทย/);
@@ -269,7 +270,7 @@ test('OCR gives only proposed values, replays one image, and old buttons cannot 
     scans++;
     assert.equal(model, '@cf/qwen/qwen3.8-27b');
     assert.match(input.messages[0].content[1].image_url.url, /^data:image\/png;base64,/);
-    return { choices: [{ message: { content: '{"completed":true,"amount":"123.45","date":"2569-11-15"}' } }] };
+    return { choices: [{ message: { content: '{"completed":true,"amount":"123.45","dateText":"2569-11-15"}' } }] };
   } };
   const incoming = { type: 'image', id: '123456' };
   const scanned = await h.send(incoming);
@@ -295,7 +296,7 @@ test('OCR gives only proposed values, replays one image, and old buttons cannot 
 
 test('unreadable slips require the user to supply both amount and date before review', async t => {
   const h = await harness(t);
-  h.env.LINE_AI = { async run() { return { response: '{"completed":false,"amount":"120","date":"2026-11-15"}' }; } };
+  h.env.LINE_AI = { async run() { return { response: '{"completed":false,"amount":"120","dateText":"2026-11-15"}' }; } };
   const scanned = await h.send({ type: 'image', id: '982' });
   const [, id] = replyText(scanned).match(/สลิป (L[0-9A-F]+)/);
   assert.match(replyText(scanned), /กรุณากรอกยอด/);
@@ -310,9 +311,9 @@ test('a matching payer bank and restaurant payment produce an editable dinner dr
   const h = await harness(t);
   mockLineInput(h, input => {
     assert.equal(input, null);
-    return { completed: true, amount: '60', date: '2026-11-17', time: '19:21',
+    return { completed: true, amount: '60', dateText: '17 พ.ย. 69 19:21', time: '19:21',
       payerName: 'นายพงศ์ ร***', payerType: 'person', payerBank: 'บัญชีธนาคารกรุงไทย',
-      payeeType: 'meal_merchant', payeeName: 'ร้านอาหารจำลอง', issuerBank: 'กรุงไทย', memo: 'ก๋วยเตี๋ยวรวม' };
+      payeeType: 'meal_merchant', payeeName: 'ร้านอาหารจำลอง', issuerBank: 'กรุงไทย', merchantMarker: 'รหัสร้านค้า', memo: 'ก๋วยเตี๋ยวรวม' };
   });
   await h.send('ส่วนตัว');
   const image = { type: 'image', id: '2501' };
@@ -334,13 +335,13 @@ test('a known recipient produces an income suggestion and keeps the memo when ch
   const updated = structuredClone(before);
   updated.tables['ผู้ใช้งาน'].rows[0].display_name = 'วีระ นามสมมติ';
   await commitSnapshot(h.DB, before, updated, 'slip-owner', 'slip-owner', {});
-  mockLineInput(h, () => ({ completed: true, amount: '250.25', date: '2026-11-17',
+  mockLineInput(h, () => ({ completed: true, amount: '250.25', dateText: '17 พฤศจิกายน 2569',
     payerName: 'นายสมใจ ส***', payeeName: 'นายวีระ น***', payerBank: 'กรุงไทย', payeeBank: 'กรุงไทย',
-    perspective: 'payer', memo: 'ค่าจ้างทำป้าย' }));
+    statusText: 'โอนเงินสำเร็จ', memo: 'ค่าจ้างทำป้าย' }));
   await h.send('ส่วนตัว');
   const scan = await h.send({ type: 'image', id: '2502' });
   assert.match(replyText(scan), /รายรับ · 250\.25 บาท · 2026-11-17 · กรุงไทย\nรายละเอียด ค่าจ้างทำป้าย/u);
-  assert.doesNotMatch(replyText(scan), /พิมพ์ว่ารับหรือจ่าย/u);
+  assert.doesNotMatch(replyText(scan), /กรุณาเลือกว่าสลิปนี้เป็นรายรับหรือรายจ่าย/u);
   const draft = await h.send(action(scan, 'รายรับทั่วไป'));
   assert.match(replyText(draft), /รับ · ส่วนตัว[\s\S]*หมายเหตุ ค่าจ้างทำป้าย/u);
   assert.equal((await h.lines()).length, 0);
@@ -348,12 +349,12 @@ test('a known recipient produces an income suggestion and keeps the memo when ch
 
 test('an ambiguous person-to-person receipt asks direction without losing the memo', async t => {
   const h = await harness(t);
-  mockLineInput(h, () => ({ completed: true, amount: '40', date: '2026-11-17',
-    payerType: 'person', payeeType: 'person', issuerBank: 'กรุงไทย', payerBank: 'กรุงไทย',
-    payeeBank: 'กรุงไทย', memo: 'ก๋วยเตี๋ยวรวม' }));
+  mockLineInput(h, () => ({ completed: true, amount: '40', dateText: '17 พ.ย. 2569',
+    payerType: 'person', payeeType: 'merchant', issuerBank: 'กรุงไทย', payerBank: 'กรุงไทย',
+    payeeBank: 'กรุงไทย', perspective: 'payee', statusText: 'โอนเงินสำเร็จ', memo: 'ก๋วยเตี๋ยวรวม' }));
   await h.send('ส่วนตัว');
   const scan = await h.send({ type: 'image', id: '2503' });
-  assert.match(replyText(scan), /รายละเอียด ก๋วยเตี๋ยวรวม[\s\S]*พิมพ์ว่ารับหรือจ่าย/u);
+  assert.match(replyText(scan), /รายละเอียด ก๋วยเตี๋ยวรวม[\s\S]*กรุณาเลือกว่าสลิปนี้เป็นรายรับหรือรายจ่าย/u);
   const withDirection = await h.send(action(scan, 'รายจ่าย'));
   assert.match(replyText(withDirection), /รายจ่ายส่วนตัว[\s\S]*บัญชีที่ใช้จ่าย กรุงไทย[\s\S]*รายละเอียด ก๋วยเตี๋ยวรวม/u);
   const draft = await h.send('ข้าวเย็น');
@@ -364,17 +365,18 @@ test('an ambiguous person-to-person receipt asks direction without losing the me
 test('resending a pending receipt from the old reader fills its memo without replacing user-entered fields', async t => {
   const h = await harness(t);
   let upgraded = false;
-  mockLineInput(h, () => upgraded ? { completed: true, amount: '60', date: '2026-11-17', time: '19:21',
+  mockLineInput(h, () => upgraded ? { completed: true, amount: '60', dateText: '17 พ.ย. 2569', time: '19:21',
     payerType: 'person', payeeType: 'meal_merchant', issuerBank: 'กรุงไทย', payerBank: 'กรุงไทย',
-    memo: 'ก๋วยเตี๋ยวรวม' } : { completed: true, amount: '61', date: '2026-11-16' });
+    merchantMarker: 'รหัสร้านค้า', memo: 'ก๋วยเตี๋ยวรวม' } : { completed: true, amount: '61', dateText: '2026-11-15' });
   await h.send('ส่วนตัว');
   const image = { type: 'image', id: '2504' };
   await h.send(image);
   const receipt = h.DB.sqlite.prepare('SELECT id FROM line_drafts').get();
   h.DB.sqlite.prepare('UPDATE line_drafts SET scan_json=? WHERE id=?')
-    .run(JSON.stringify({ cents: 6100, date: '2026-11-16' }), receipt.id);
+    .run(JSON.stringify({ cents: 6100, date: '2026-11-15' }), receipt.id);
   await h.send('รายจ่าย');
   await h.send('ยอด=62');
+  await h.send('วันที่=2026-11-16');
   const oldDraft = await h.send('ข้าวเย็น');
   assert.match(replyText(oldDraft), /รายละเอียด —$/u);
   upgraded = true;
@@ -383,6 +385,62 @@ test('resending a pending receipt from the old reader fills its memo without rep
   assert.equal(h.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM line_drafts').get().n, 1);
   assert.equal((await h.lines()).length, 0);
   assert.match(replyText(await h.send(action(oldDraft))), /รหัสร่างเปลี่ยนแล้วค่ะ/);
+});
+
+test('the slip reader converts the printed month and rejects an unknown month or a missing date', async () => {
+  let dateText;
+  const env = { LINE_AI: { async run() {
+    return { response: { completed: true, amount: '100.00', dateText, date: '2026-01-18',
+      statusText: 'ได้รับเงินแล้ว', payerBank: 'ออมสิน', payeeBank: 'กรุงไทย' } };
+  } } };
+  for (const [printed, expected] of [
+    ['วันที่ทำรายการ 18 พ.ย. 2569 - 19:51', '2026-11-18'],
+    ['๑๘ พ. ย. ๖๙ 19:51 น.', '2026-11-18'],
+    ['18 พฤศจิกายน พ.ศ. 2569', '2026-11-18'],
+    ['วันที่ทำรายการ 18 พ.ย. 2569'.normalize('NFKC'), '2026-11-18'],
+    ['18/11/2569', '2026-11-18'],
+    ['2026/11/18', '2026-11-18'],
+    ['18 Nov 2026', '2026-11-18'],
+    ['18 ม.ค. 2569', '2026-01-18'],
+    ['31 พ.ย. 2569', null],
+    ['18 พ.ก. 2569', null],
+    [null, null],
+  ]) {
+    dateText = printed;
+    const scan = await readSlip(env, { bytes: fakeImage, mime: 'image/png' });
+    assert.equal(scan.date, expected, String(printed));
+    assert.equal(scan.direction, 'income');
+    assert.equal(scan.cents, 10000);
+  }
+});
+
+test('a resent bank slip replaces the original wrong date and direction but clears the incompatible income category', async t => {
+  const h = await harness(t);
+  const before = await loadSnapshot(h.DB);
+  const withOwner = structuredClone(before);
+  withOwner.tables['ผู้ใช้งาน'].rows[0].display_name = 'วีระ นามสมมติ';
+  await commitSnapshot(h.DB, before, withOwner, 'slip-owner', 'slip-owner', {});
+  let corrected = false;
+  mockLineInput(h, () => corrected ? {
+    completed: true, amount: '100', dateText: '18 พ.ย. 2569 - 19:51', date: '2026-01-18',
+    payerName: 'นายวีระ น * * *', payeeName: 'บุคคลจำลอง', payerBank: 'กรุงไทย', payeeBank: 'ออมสิน',
+    statusText: 'โอนเงินสำเร็จ', perspective: 'payee', memo: 'ขนม',
+  } : { completed: true, amount: '100', dateText: '2026-01-18', statusText: 'ได้รับเงิน', memo: 'ขนม' });
+  await h.send('ส่วนตัว');
+  const image = { type: 'image', id: '2505' };
+  const old = await h.send(image);
+  const oldDraft = await h.send(action(old, 'รายรับทั่วไป'));
+  const savedScan = h.DB.sqlite.prepare('SELECT id,scan_json FROM line_drafts').get();
+  const oldScan = JSON.parse(savedScan.scan_json);
+  delete oldScan.readerVersion;
+  h.DB.sqlite.prepare('UPDATE line_drafts SET scan_json=? WHERE id=?').run(JSON.stringify(oldScan), savedScan.id);
+  corrected = true;
+  const refreshed = await h.send(image);
+  assert.match(replyText(refreshed), /รายจ่ายส่วนตัว[\s\S]*จำนวนเงิน 100\.00 บาท\nวันที่ 18\/11\/2026\nบัญชีที่ใช้จ่าย กรุงไทย\nประเภทรายจ่าย —\nรายละเอียด ขนม/u);
+  assert.match(replyText(await h.send(action(oldDraft))), /รหัสร่างเปลี่ยนแล้ว/u);
+  const reviewed = await h.send(action(refreshed, 'อาหาร'));
+  assert.match(replyText(reviewed), /18\/11\/2026[\s\S]*ประเภทรายจ่าย อาหาร\nรายละเอียด ขนม/u);
+  assert.equal((await h.lines()).length, 0);
 });
 
 test('company uses native entry preview and commit with a stable mutation ID after an uncertain response', async t => {

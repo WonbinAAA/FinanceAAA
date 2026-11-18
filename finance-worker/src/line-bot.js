@@ -3,7 +3,7 @@ import { sha256 } from './auth.js';
 import { baht, companyRefs, lineEditChoices, lineInputChoices, listLineChoices, parseAmount, parseDate,
   prepareLineDraft, readLineDailyTotals, saveLineDraft } from './line-ledger.js';
 import { cleanCompanyItemFields, companyDirections, companyItemFields } from './line-company.js';
-import { downloadSlip, readLimitedBody, readSlip } from './line-slip.js';
+import { downloadSlip, readLimitedBody, readSlip, slipReaderVersion } from './line-slip.js';
 import { defaultLineAccount, initialLineInput, missingLineInput, readExplicitLineInput, readLineInput, setLineInputField,
   slipInputSuggestions } from './line-input.js';
 import { cardButton, companySummaryFields, dailySummaryCard, draftCard, isPersonalExpense, messageCard,
@@ -131,7 +131,7 @@ function guidedMessage(row, options = {}, issue = '') {
     if (entry.fromImage && entry.note) lines.push('รายละเอียด ' + entry.note);
   }
   const next = {
-    direction: entry.fromImage ? 'พิมพ์ว่ารับหรือจ่ายค่าอะไร เช่น “จ่ายค่าอาหาร” ค่ะ' : 'รายการนี้เป็นรายรับหรือรายจ่ายคะ?',
+    direction: entry.fromImage ? 'กรุณาเลือกว่าสลิปนี้เป็นรายรับหรือรายจ่ายค่ะ' : 'รายการนี้เป็นรายรับหรือรายจ่ายคะ?',
     cents: 'กรุณาพิมพ์ยอด เช่น ยอด=50 ค่ะ',
     date: 'กรุณาพิมพ์วันที่ เช่น วันที่=2026-11-16 ค่ะ',
     account: 'กรุณาเลือกบัญชี หรือพิมพ์ชื่อ เช่น บัญชี=กรุงไทย ค่ะ',
@@ -371,21 +371,31 @@ async function editMenuAction(env, owner, action, event, oldLabel) {
 }
 
 function legacySlipScan(scan) {
-  return Boolean(scan && !Object.hasOwn(scan, 'direction'));
+  return Boolean(scan && (scan.readerVersion ?? 0) < slipReaderVersion);
 }
 
 function canRefreshSlip(row, scan) {
   return row.state === 'details' || row.state === 'ready' && legacySlipScan(scan);
 }
 
-function fillMissingSlipFields(before, proposed) {
-  const direction = before.direction ?? proposed.direction;
-  return {
-    ...before, direction, cents: before.cents ?? proposed.cents, date: before.date ?? proposed.date,
+function refreshSlipInput(before, proposed, scan, oldScan, choices) {
+  // Values that differ from the previous scan are user edits.
+  const direction = before.direction && before.direction !== oldScan.direction ? before.direction : proposed.direction;
+  const suggested = slipInputSuggestions(before.scope, scan, choices, direction);
+  const oldSuggested = slipInputSuggestions(before.scope, oldScan, choices);
+  const changedDirection = before.direction !== direction;
+  const entry = {
+    ...before, direction, cents: before.cents ?? proposed.cents,
+    date: before.date && before.date !== oldScan.date ? before.date : proposed.date,
     note: before.note || proposed.note,
-    account: before.account ?? (direction === proposed.direction ? proposed.account : null),
-    item: before.item ?? (direction === proposed.direction ? proposed.item : null),
+    account: before.account && before.account !== oldSuggested.account ? before.account : suggested.account,
+    item: changedDirection ? suggested.item : before.item ?? suggested.item,
   };
+  if (changedDirection && entry.scope === 'บริษัท') {
+    delete entry.fundingKind;
+    cleanCompanyItemFields(entry, {});
+  }
+  return entry;
 }
 
 async function receiveImage(env, owner, id, event, now) {
@@ -423,10 +433,10 @@ async function receiveImage(env, owner, id, event, now) {
     const choices = await lineInputChoices(env);
     const scan = scanNeeded ? await readSlip(env, image, choices.owners) : storedScan;
     scan.cents ??= storedScan?.cents ?? null;
-    scan.date ??= storedScan?.date ?? null;
+    scan.note ||= storedScan?.note || '';
     const scope = before?.scope ?? (guided ? session.scope : null);
     const proposed = scope ? initialLineInput(scope, event.timestamp, scan, choices) : null;
-    const entry = before ? fillMissingSlipFields(before, proposed) : proposed;
+    const entry = before && storedScan ? refreshSlipInput(before, proposed, scan, storedScan, choices) : proposed;
     const { draft, issue } = await reviewLineEntry(env, entry, row.id);
     const update = await env.DB.prepare(
       "UPDATE line_drafts SET state=?,version=version+?,scan_json=?,entry_json=?,draft_json=?,details_order=?,lease_until=0 "
