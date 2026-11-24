@@ -5,7 +5,7 @@ import {calculate,formatCalculation} from '../public/calculator.js';
 test('calculator keeps exact decimals, precedence and division until rounding the applied amount',()=>{
  for(const [expression,expected] of [
   ['0.1+0.2','0.3'],['2+3×4','14'],['(2+3)*4','20'],
-  ['10÷3×3','10'],['.5+-.2','0.3'],['-7+2','-5'],['1.005','1.01'],
+  ['10÷3×3','10'],['.5+-.2','0.3'],['-7+2','-5'],['1.005','1.01'],['1.00499999999999','1'],
  ]){
   assert.equal(formatCalculation(calculate(expression),2),expected,expression);
  }

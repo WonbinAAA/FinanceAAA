@@ -97,8 +97,8 @@ export function openCalculator(initialValue = '', allowUse = false) {
     };
     const equals = () => {
       try {
-        input.value = formatCalculation(calculate(input.value));
-        update();
+        output.textContent = formatCalculation(calculate(input.value));
+        error.textContent = '';
       } catch (failure) { error.textContent = failure.message; }
     };
     input.addEventListener('input', update);
