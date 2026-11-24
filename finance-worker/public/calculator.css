@@ -1,0 +1,20 @@
+.calculator-trigger{display:inline-flex;align-items:center;justify-content:center;flex:none;width:38px;height:38px;border:1px solid #e4dcec;border-radius:10px;background:#fff;color:var(--calculator-accent,#713dea);cursor:pointer}
+.calculator-trigger svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.calculator-field-label{display:flex!important;align-items:center;justify-content:space-between;gap:10px}
+.finance-calculator{--calculator-accent:#713dea;position:fixed;inset:0;margin:auto;width:min(370px,calc(100% - 28px));max-height:calc(100dvh - 28px);padding:22px;border:0;border-radius:22px;background:#fff;color:#24202d;font:inherit;box-sizing:border-box;overflow:auto;box-shadow:0 20px 80px #23193640}
+.finance-calculator::backdrop{background:#20162d60}
+.calculator-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.calculator-heading h2{margin:0;font:inherit;font-size:20px;font-weight:600}
+.calculator-close{background:#f4f1f7;border:0;border-radius:10px;color:#6c6179;width:36px;height:36px;font:inherit;font-size:24px;cursor:pointer}
+.calculator-expression-label{display:block;font-size:12px;color:#82768f;margin-bottom:6px}
+.calculator-expression{width:100%;box-sizing:border-box;border:1px solid #e5deed;border-radius:10px;background:#faf8fd;padding:10px 12px;font:inherit;font-size:19px;text-align:right;color:#292134}
+.calculator-result{display:block;min-height:48px;padding:9px 0;text-align:right;font-size:30px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;color:var(--calculator-accent)}
+.calculator-error{min-height:20px;margin:0 0 8px;color:#b42318;font-size:12px}
+.calculator-keys{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.calculator-keys button{min-height:50px;border:0;border-radius:11px;background:#f5f3f7;color:#292134;font:inherit;font-size:22px;cursor:pointer;touch-action:manipulation}
+.calculator-keys button.operator{background:color-mix(in srgb,var(--calculator-accent) 10%,white);color:var(--calculator-accent)}
+.calculator-keys button:active{transform:scale(.96)}
+.calculator-use{display:block;width:100%;min-height:46px;margin-top:15px;border:0;border-radius:11px;background:var(--calculator-accent);color:white;font:inherit;font-weight:600;cursor:pointer}
+.calculator-use[hidden]{display:none}
+.finance-calculator button:focus-visible,.calculator-trigger:focus-visible{outline:3px solid #c4b5fd;outline-offset:2px}
+@media(max-width:760px){.finance-calculator{inset:auto 0 0;margin:0 auto;width:100%;max-width:420px;max-height:calc(100dvh - 12px);border-radius:22px 22px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom))}.calculator-trigger{width:34px;height:34px}}

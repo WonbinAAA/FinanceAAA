@@ -11,6 +11,7 @@
 <link rel="apple-touch-icon" href="/personal-finance-portrait-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#713dea">
+<link rel="stylesheet" href="/calculator.css">
 </head>
 <body>
 <svg class="svg-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -44,7 +45,7 @@
 <main class="app">
     <header class="topbar">
       <div class="topbar-title"><span class="finance-mobile-mark"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg></span><div><h1>รายรับ-รายจ่ายของฉัน</h1></div></div>
-      <div class="topbar-actions"><button type="button" class="finance-desktop-add" onclick="openEntryDialog()"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>เพิ่มรายการ</span></button><div id="currentMonth" class="month-pill">เดือนปัจจุบัน</div><button id="recurringShortcut" class="recurring-shortcut" onclick="showPage('Recurring')"><svg class="icon"><use href="#icon-repeat"></use></svg> รายการประจำ</button><button class="help-trigger" onclick="openHelp()" aria-label="เปิดคู่มือวิธีใช้">? วิธีใช้</button></div>
+      <div class="topbar-actions"><button id="financeCalculatorShortcut" type="button" class="calculator-trigger" data-calculator="" aria-label="เปิดเครื่องคิดเลข"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M8 6h8v4H8zM8 14h1m6 0h1m-8 4h1m6 0h1"/></svg></button><button type="button" class="finance-desktop-add" onclick="openEntryDialog()"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>เพิ่มรายการ</span></button><div id="currentMonth" class="month-pill">เดือนปัจจุบัน</div><button id="recurringShortcut" class="recurring-shortcut" onclick="showPage('Recurring')"><svg class="icon"><use href="#icon-repeat"></use></svg> รายการประจำ</button><button class="help-trigger" onclick="openHelp()" aria-label="เปิดคู่มือวิธีใช้">? วิธีใช้</button></div>
     </header>
 
     <section id="connectionError" class="connection-error hidden" role="alert"></section>
@@ -205,7 +206,7 @@
         <button type="button" data-entry-kind="TRANSFER" aria-pressed="false" onclick="selectType('TRANSFER')">โอนเงิน</button>
       </div>
 
-      <div class="field entry-amount"><label>จำนวนเงิน</label><input id="amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      <div class="field entry-amount"><label class="calculator-field-label"><span>จำนวนเงิน</span><button type="button" class="calculator-trigger" data-calculator="amount" aria-label="คำนวณจำนวนเงิน"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M8 6h8v4H8zM8 14h1m6 0h1m-8 4h1m6 0h1"/></svg></button></label><input id="amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
       <div class="field"><label>วันที่</label><input id="txDate" type="date"></div>
       <div class="field"><label id="accountLabel">บัญชีที่ใช้จ่าย</label><select id="account" class="hidden"></select><button id="accountPickerButton" class="account-picker-button" type="button" onclick="openAccountPicker('account')">เลือกบัญชี</button></div>
       <div class="field hidden" id="toAccountField"><label>บัญชีปลายทาง</label><select id="toAccount" class="hidden"></select><button id="toAccountPickerButton" class="account-picker-button" type="button" onclick="openAccountPicker('toAccount')">เลือกบัญชีปลายทาง</button></div>
@@ -268,7 +269,7 @@
       <div class="field"><label for="debtDueTarget">ยอดที่ยังต้องจ่ายในเดือนนั้น</label><input id="debtDueTarget" type="number" min="0" step="0.01"></div>
     </div>
     <div id="debtAmountFields" class="hidden">
-      <div class="field"><label>จำนวนเงิน</label><input id="debtAmount" type="number" min="0" step="0.01"></div>
+      <div class="field"><label class="calculator-field-label"><span>จำนวนเงิน</span><button type="button" class="calculator-trigger" data-calculator="debtAmount" aria-label="คำนวณจำนวนเงิน"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M8 6h8v4H8zM8 14h1m6 0h1m-8 4h1m6 0h1"/></svg></button></label><input id="debtAmount" type="number" min="0" step="0.01"></div>
       <div id="debtSplitFields" class="hidden"><div class="field"><label>ส่วนที่ชำระเงินต้น</label><input id="debtPaidPrincipal" type="number" min="0" step="0.01"></div><div class="field"><label>ส่วนที่ชำระดอกเบี้ย</label><input id="debtPaidInterest" type="number" min="0" step="0.01"></div><div class="field"><label>ส่วนที่ชำระค่าธรรมเนียม</label><input id="debtPaidFees" type="number" min="0" step="0.01"></div><div class="field"><label>อ้างอิงใบแจ้งยอด / หลักฐานการชำระ</label><input id="debtPaymentReference" maxlength="160"></div><p class="hint">ยอดเงินที่จ่ายต้องเท่ากับสามส่วนรวมกัน หากยอดค้างเปลี่ยนให้ยืนยันใบแจ้งยอดก่อน ไม่มีส่วนใดให้กรอก 0</p></div><div id="debtAccountField" class="field"><label>บัญชีที่ใช้ชำระ</label><select id="debtAccount"></select></div>
       <div class="field"><label>วันที่จริง</label><input id="debtDate" type="date"></div>
     </div>
@@ -284,7 +285,7 @@
       <div class="field"><label>หมวดหมู่</label><select id="recurringCategory"></select></div>
       <div class="field"><label>วันครบกำหนดของเดือน</label><input id="recurringDueDay" type="number" min="1" max="31" value="1"></div>
     </div>
-    <div class="field"><label id="recurringAmountLabel">จำนวนเงินจริง</label><input id="recurringAmount" type="number" min="0" step="0.01"></div>
+    <div class="field"><label class="calculator-field-label"><span id="recurringAmountLabel">จำนวนเงินจริง</span><button type="button" class="calculator-trigger" data-calculator="recurringAmount" aria-label="คำนวณจำนวนเงินจริง"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M8 6h8v4H8zM8 14h1m6 0h1m-8 4h1m6 0h1"/></svg></button></label><input id="recurringAmount" type="number" min="0" step="0.01"></div>
     <div class="field"><label>บัญชีจริง</label><select id="recurringAccount"></select></div>
     <div class="field"><label id="recurringDateLabel">วันที่จริง</label><input id="recurringDate" type="date"></div>
     <div class="actions"><button class="secondary" onclick="cancelDialog('recurringDialog')">ยกเลิก</button><button id="recurringSubmitButton" class="primary" onclick="submitRecurringDialog()">บันทึก</button></div>
@@ -294,5 +295,6 @@
 <script src="/ledger-view.js"></script>
 <script src="/company-net.js"></script>
 <script src="/app.js"></script>
+<script type="module" src="/calculator.js"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@ export function applyAppIcon(html) {
 }
 
 export function applyLayoutHtml(html) {
-  if (html.includes('id="financeSidebar"')) return refineWorkspaceHtml(html);
+  if (html.includes('id="financeSidebar"')) return applyCalculatorHtml(refineWorkspaceHtml(html));
   html = html.replace('<link rel="stylesheet" href="/cloud.css">', '<link rel="stylesheet" href="/cloud.css">\n<link rel="stylesheet" href="/workspace.css">');
   const sidebar = `<aside id="financeSidebar" class="finance-sidebar" aria-label="เมนูการเงิน">
     <a class="finance-brand" href="#pageDashboard" onclick="showPage('Dashboard');return false"><span class="finance-brand-mark">${icon('wallet')}</span><span><strong>สมุดการเงิน</strong><small>รายรับ รายจ่าย และเงินบริษัท</small></span></a>
@@ -24,7 +24,23 @@ export function applyLayoutHtml(html) {
   html = html.replace('<div class="topbar-actions">', `<div class="topbar-actions"><button type="button" class="finance-desktop-add" onclick="openEntryDialog()">${icon('plus')}<span>เพิ่มรายการ</span></button>`);
   html = html.replace('<div id="pageDashboard" class="page">', '<div id="pageDashboard" class="page">\n<div class="finance-dashboard-heading"><div><h2>ภาพรวมการเงิน</h2><p>ยอดเงิน บัญชี และรายการล่าสุดของคุณ</p></div><span class="finance-heading-label">สมุดการเงินของฉัน</span></div>');
   html = html.replace('<nav class="bottom-nav">', '<nav class="bottom-nav" aria-label="เมนูหลักบนมือถือ">');
-  return refineWorkspaceHtml(html);
+  return applyCalculatorHtml(refineWorkspaceHtml(html));
+}
+
+export function applyCalculatorHtml(html) {
+  if (html.includes('id="financeCalculatorShortcut"')) return html;
+  const symbol='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M8 6h8v4H8zM8 14h1m6 0h1m-8 4h1m6 0h1"/></svg>';
+  html=html.replace('</head>','<link rel="stylesheet" href="/calculator.css">\n</head>');
+  html=html.replace('</body>','<script type="module" src="/calculator.js"></script>\n</body>');
+  html=html.replace('<div class="topbar-actions">','<div class="topbar-actions"><button id="financeCalculatorShortcut" type="button" class="calculator-trigger" data-calculator="" aria-label="เปิดเครื่องคิดเลข">'+symbol+'</button>');
+  for(const [id,label] of [['amount','จำนวนเงิน'],['debtAmount','จำนวนเงิน']]){
+    const field='<label>'+label+'</label><input id="'+id+'"';
+    const withCalculator='<label class="calculator-field-label"><span>'+label+'</span><button type="button" class="calculator-trigger" data-calculator="'+id+'" aria-label="คำนวณ'+label+'">'+symbol+'</button></label><input id="'+id+'"';
+    html=html.replace(field,withCalculator);
+  }
+  html=html.replace('<label id="recurringAmountLabel">จำนวนเงินจริง</label>',
+    '<label class="calculator-field-label"><span id="recurringAmountLabel">จำนวนเงินจริง</span><button type="button" class="calculator-trigger" data-calculator="recurringAmount" aria-label="คำนวณจำนวนเงินจริง">'+symbol+'</button></label>');
+  return html;
 }
 
 function refineWorkspaceHtml(html) {
